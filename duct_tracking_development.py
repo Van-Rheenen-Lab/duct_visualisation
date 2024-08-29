@@ -1,13 +1,21 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QVBoxLayout, \
-    QPushButton, QWidget, QFileDialog, QMenuBar, QAction, QHBoxLayout, QInputDialog, QLineEdit, QGraphicsEllipseItem ,QTextEdit, QDialog
-from PyQt5.QtGui import QPixmap, QImage, QPen, QBrush, QCursor
+    QPushButton, QWidget, QFileDialog, QMenuBar, QAction, QHBoxLayout, QInputDialog, QLineEdit, QGraphicsEllipseItem ,QTextEdit, QDialog, QLabel, QSlider, QColorDialog
+from PyQt5.QtGui import QPixmap, QImage, QPen, QBrush, QCursor, QColor
 from PyQt5.QtCore import Qt, QPointF, QPoint
 import json
 
 class DuctSystemGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # Initialize the default annotation names first
+        self.default_annotation_names = ["CFP basal", "GFP basal", "YFP basal", "RFP basal", "CFP luminal", "GFP luminal", "YFP luminal", "RFP luminal"]  # Default annotation names
+
+        # Now you can initialize the annotation colors using the default names
+        self.annotation_colors = {name: Qt.red for name in self.default_annotation_names}  # Default colors
+        self.annotation_point_size = 10  # Default point size
+        self.annotation_line_thickness = 2  # Default line thickness
 
         self.duct_system = DuctSystem()
         self.current_point_name = None  # Current active point
@@ -23,9 +31,9 @@ class DuctSystemGUI(QMainWindow):
         self.annotation_mode = None  # Mode for placing annotations
         self.panning_mode = False  # Mode for panning the view
         self.pan_start = QPoint()  # Starting position for panning
-        self.default_annotation_names = ["Note1", "Note2", "Note3"]  # Default annotation names
         self.custom_annotation_name = None  # Name for custom annotation mode
         self.initUI()
+
 
     def initUI(self):
         self.setWindowTitle("Duct System Annotator")
@@ -47,12 +55,16 @@ class DuctSystemGUI(QMainWindow):
         save_annotations_action.triggered.connect(self.save_annotations)
         file_menu.addAction(save_annotations_action)
 
-        # Add menu for editing annotation names
+        # Add menu for editing annotation names and properties
         edit_menu = menubar.addMenu('Edit')
 
         edit_annotations_action = QAction('Edit Annotation Names', self)
         edit_annotations_action.triggered.connect(self.edit_annotation_names)
         edit_menu.addAction(edit_annotations_action)
+
+        edit_properties_action = QAction('Edit Annotation Properties', self)
+        edit_properties_action.triggered.connect(self.show_edit_properties_dialog)
+        edit_menu.addAction(edit_properties_action)
 
         # Add Instructions menu
         instructions_menu = menubar.addMenu('Instructions')
@@ -133,14 +145,17 @@ class DuctSystemGUI(QMainWindow):
                 self.clear_scene(clear_image=False)
 
                 # Load branch points and store them correctly
-                last_bp_name = None
+                highest_bp_name = 0
                 for name, point in data.get('branch_points', {}).items():
                     point_qt = QPointF(point['x'], point['y'])
                     self.duct_system.add_branch_point(name, point_qt)
                     point_item = self.scene.addEllipse(point_qt.x() - 5, point_qt.y() - 5, 10, 10, QPen(Qt.green),
                                                        QBrush(Qt.green))
                     self.point_items[name] = point_item  # Store the point item in the dictionary
-                    last_bp_name = name  # Track the last branch point name
+                    highest_bp_name = max(highest_bp_name, int(name))  # Track the highest branch point name
+
+                # Update next_bp_name based on the highest branch point name loaded
+                self.next_bp_name = highest_bp_name + 1
 
                 # Load segments and re-link to branch points
                 for segment_name, segment in data.get('segments', {}).items():
@@ -158,11 +173,75 @@ class DuctSystemGUI(QMainWindow):
                     # Load annotations
                     for annotation in segment.get('annotations', []):
                         point = QPointF(annotation['x'], annotation['y'])
-                        self.scene.addEllipse(point.x() - 5, point.y() - 5, 10, 10, QPen(Qt.red), QBrush(Qt.red))
+                        annotation_color = self.annotation_colors.get(annotation['name'], Qt.red)
+                        self.scene.addEllipse(point.x() - 5, point.y() - 5, 10, 10, QPen(annotation_color),
+                                              QBrush(annotation_color))
 
                 # Set the current_point_name to the last branch point loaded
-                if last_bp_name:
-                    self.set_active_point(last_bp_name)
+                if highest_bp_name > 0:
+                    self.set_active_point(str(highest_bp_name))
+
+    def show_edit_properties_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Edit Annotation Properties")
+        dialog.resize(400, 300)
+
+        layout = QVBoxLayout()
+
+        # Slider for point size
+        layout.addWidget(QLabel("Point Size:"))
+        self.point_size_slider = QSlider(Qt.Horizontal)
+        self.point_size_slider.setMinimum(1)
+        self.point_size_slider.setMaximum(20)
+        self.point_size_slider.setValue(self.annotation_point_size)  # Reflect current value
+        layout.addWidget(self.point_size_slider)
+
+        # Slider for line thickness
+        layout.addWidget(QLabel("Line Thickness:"))
+        self.line_thickness_slider = QSlider(Qt.Horizontal)
+        self.line_thickness_slider.setMinimum(1)
+        self.line_thickness_slider.setMaximum(10)
+        self.line_thickness_slider.setValue(self.annotation_line_thickness)  # Reflect current value
+        layout.addWidget(self.line_thickness_slider)
+
+        # Color pickers for each annotation type
+        self.color_buttons = {}
+        for annotation_name in self.default_annotation_names:
+            layout.addWidget(QLabel(f"{annotation_name} Color:"))
+            color_button = QPushButton("Choose Color")
+            color_button.clicked.connect(lambda _, n=annotation_name: self.choose_annotation_color(n))
+            layout.addWidget(color_button)
+            self.color_buttons[annotation_name] = color_button
+
+        # Apply and close buttons
+        button_layout = QHBoxLayout()
+        apply_button = QPushButton("Apply", dialog)
+        apply_button.clicked.connect(self.apply_annotation_properties)
+        button_layout.addWidget(apply_button)
+
+        close_button = QPushButton("Close", dialog)
+        close_button.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_button)
+
+        layout.addLayout(button_layout)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def choose_annotation_color(self, annotation_name):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.annotation_colors[annotation_name] = color
+
+    def apply_annotation_properties(self):
+        self.annotation_point_size = self.point_size_slider.value()
+        self.annotation_line_thickness = self.line_thickness_slider.value()
+
+        # Update the color only if the user has selected a new one
+        if hasattr(self, 'selected_annotation_color'):
+            self.annotation_color = self.selected_annotation_color
+
+        self.statusBar().showMessage("Annotation properties updated.")
 
     def show_instructions_dialog(self):
         instructions = (
@@ -176,7 +255,7 @@ class DuctSystemGUI(QMainWindow):
             "- Press 'Delete' to remove the last branch.\n"
             "- Press 'Backspace' to revert the active point to the previous point.\n"
             "- Use the 'Edit' menu to customize annotation names. \n\n"
-            "Currently, deleting segments from loaded annotations is not supported. Please don't do that :)\n\n"
+            
             "Made by Jeroen Doornbos based on a version from Jacco van Rheenen\n"
 
         )
@@ -441,14 +520,19 @@ class DuctSystemGUI(QMainWindow):
             self.set_active_segment(segment_name)
 
     def set_active_segment(self, segment_name):
-        # Reset the color of the previous active segment
+        # Reset the color of the previous active segment to blue
         if self.active_segment_name and self.active_segment_name in self.segment_items:
             for segment_item in self.segment_items[self.active_segment_name]:
                 segment_item.setPen(QPen(Qt.blue, 2))
 
+        # If segment_name is None, just clear the active segment without setting a new one
+        if segment_name is None:
+            self.active_segment_name = None
+            return
+
         self.active_segment_name = segment_name
 
-        # Highlight the active segment in yellow
+        # Highlight the new active segment in yellow
         for segment_item in self.segment_items[self.active_segment_name]:
             segment_item.setPen(QPen(Qt.yellow, 2))
 
@@ -490,6 +574,7 @@ class DuctSystemGUI(QMainWindow):
         if not self.segment_mode:
             self.annotation_mode = None
             self.custom_annotation_name = None
+            self.set_active_segment(None)  # Reset active segment to None and reset its color
 
         self.update_mode_display()
         self.statusBar().showMessage("Segment mode activated." if self.segment_mode else "Segment mode deactivated.")
@@ -499,9 +584,6 @@ class DuctSystemGUI(QMainWindow):
 
         # Update cursor based on mode
         self.view.setCursor(QCursor(Qt.CrossCursor) if self.segment_mode else QCursor(Qt.ArrowCursor))
-
-        if self.segment_mode and self.active_segment_name:
-            self.set_active_segment(self.active_segment_name)
 
     def toggle_panning_mode(self):
         self.panning_mode = not self.panning_mode
@@ -547,8 +629,13 @@ class DuctSystemGUI(QMainWindow):
             segment = self.duct_system.get_segment(self.active_segment_name)
             if segment:
                 segment.add_annotation(annotation)
-                # Display the annotation as a point on the scene
-                self.scene.addEllipse(point.x() - 5, point.y() - 5, 10, 10, QPen(Qt.red), QBrush(Qt.red))
+                # Use the color specific to the annotation type
+                color = self.annotation_colors.get(self.annotation_mode, Qt.red)
+                pen = QPen(color, self.annotation_line_thickness)
+                brush = QBrush(color)
+                self.scene.addEllipse(point.x() - (self.annotation_point_size / 2),
+                                      point.y() - (self.annotation_point_size / 2),
+                                      self.annotation_point_size, self.annotation_point_size, pen, brush)
                 self.statusBar().showMessage(
                     f"Annotation '{self.annotation_mode}' added to segment '{segment.segment_name}'.")
 
