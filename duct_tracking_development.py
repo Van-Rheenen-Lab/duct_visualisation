@@ -372,15 +372,18 @@ class DuctSystemGUI(QMainWindow):
 
     def handle_mouse_move(self, event):
         if self.panning_mode and event.buttons() == Qt.LeftButton:
-            # Calculate the difference in mouse movement
+            # Handle panning
             delta = event.pos() - self.pan_start
             self.view.setTransformationAnchor(QGraphicsView.NoAnchor)
             self.view.setResizeAnchor(QGraphicsView.NoAnchor)
             self.view.horizontalScrollBar().setValue(self.view.horizontalScrollBar().value() - delta.x())
             self.view.verticalScrollBar().setValue(self.view.verticalScrollBar().value() - delta.y())
-            # Update pan_start to the new mouse position
             self.pan_start = event.pos()
-        elif not self.panning_mode and self.current_point_name is not None and not self.selection_mode and not self.segment_mode:
+        elif self.segment_mode:
+            # Clear the temp line if in segment mode but not actively drawing
+            self.clear_temp_line()
+        elif not self.selection_mode and not self.panning_mode and self.current_point_name is not None:
+            # Update the temp line if no specific mode is active (normal mode)
             point = self.view.mapToScene(event.pos())
             self.update_temp_line(point)
 
@@ -602,11 +605,11 @@ class DuctSystemGUI(QMainWindow):
         self.selection_mode = False  # Exit selection mode
         self.panning_mode = False  # Exit panning mode
 
-        # Reset annotation mode and clear dotted lines when segment mode is deactivated
         if not self.segment_mode:
             self.annotation_mode = None
             self.custom_annotation_name = None
             self.set_active_segment(None)  # Reset active segment to None and reset its color
+            self.clear_temp_line()  # Clear the temporary dotted line
             self.clear_dotted_lines()  # Clear all dotted lines
 
         self.update_mode_display()
