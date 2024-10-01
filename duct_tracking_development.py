@@ -1,20 +1,18 @@
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
-    QVBoxLayout, QPushButton, QWidget, QFileDialog, QMenuBar, QAction, QHBoxLayout,
+    QVBoxLayout, QPushButton, QWidget, QFileDialog, QAction, QHBoxLayout,
     QInputDialog, QLineEdit, QGraphicsEllipseItem, QTextEdit, QDialog, QLabel,
-    QSlider, QColorDialog, QFormLayout, QComboBox, QMessageBox
+    QSlider, QColorDialog, QComboBox, QMessageBox
 )
 from PyQt5.QtGui import (
-    QPixmap, QImage, QPen, QBrush, QCursor, QColor, QPolygonF, QPainter
+    QPixmap, QImage, QPen, QBrush, QCursor, QColor, QPolygonF
 )
-from PyQt5.QtCore import Qt, QPointF, QPoint, QTimer
+from PyQt5.QtCore import Qt, QPointF, QPoint, QTimer, QEvent
 import json
-import tifffile
 import numpy as np
-
-import os
-
+import tifffile
+from imagecodecs import zstd_decode
 
 class DuctSystemGUI(QMainWindow):
     def __init__(self):
@@ -258,7 +256,6 @@ class DuctSystemGUI(QMainWindow):
         )
         if file_name:
             try:
-                import tifffile
                 img_array = tifffile.imread(file_name)
                 # Determine the axes order using the metadata
                 with tifffile.TiffFile(file_name) as tif:
@@ -314,15 +311,12 @@ class DuctSystemGUI(QMainWindow):
                 # Enable annotation buttons now that image is loaded
                 for button in self.annotation_buttons:
                     button.setEnabled(True)
-            except ImportError:
-                QMessageBox.warning(self, "Load Image",
-                                    "tifffile module not found. Please install it using 'pip install tifffile'.")
             except Exception as e:
                 QMessageBox.warning(self, "Load Image", f"Failed to load image: {e}")
 
     def eventFilter(self, source, event):
         """Event filter to capture key presses for Z-slice navigation."""
-        if event.type() == event.KeyPress:
+        if event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Up:
                 self.prev_z_slice()  # Navigate to the previous Z slice
                 self.statusBar().showMessage("Navigated to the previous Z slice (Up arrow).")
@@ -334,7 +328,6 @@ class DuctSystemGUI(QMainWindow):
                 self.status_message_timer.start()  # Start timer to reset status message
                 return True
         return super().eventFilter(source, event)
-
     def clear_status_message(self):
         """Clear the status bar message."""
         self.statusBar().clearMessage()
@@ -449,15 +442,18 @@ class DuctSystemGUI(QMainWindow):
         combined_frame = np.zeros((height, width, 3), dtype=np.float32)  # Use float32 for accumulation
 
         for idx, (channel_name, channel_data) in enumerate(self.channels.items()):
-            frame = channel_data[self.current_z]
+            frame = channel_data[self.current_z].astype(np.float32)
             brightness = self.channel_brightness.get(channel_name, 1.0)
-            frame_adjusted = self.adjust_brightness_numpy(frame, brightness)
-            color = self.get_channel_color(idx)
-            # Normalize color to [0,1]
-            color_norm = [c / 255.0 for c in color]
-            # Map the grayscale frame to the color
-            for c in range(3):
-                combined_frame[:, :, c] += frame_adjusted * color_norm[c]
+            frame_adjusted = frame * brightness
+
+            color = np.array(self.get_channel_color(idx)) / 255.0  # Normalize color to [0,1]
+            # Reshape color to (1,1,3) for broadcasting
+            color = color.reshape(1, 1, 3)
+            # Expand frame to (height,width,1) for broadcasting
+            frame_adjusted = frame_adjusted[:, :, np.newaxis]
+            # Multiply frame by color and accumulate
+            combined_frame += frame_adjusted * color
+
         # Clip the combined frame to [0,255] and convert to uint8
         combined_frame = np.clip(combined_frame, 0, 255).astype(np.uint8)
         return combined_frame
@@ -503,30 +499,77 @@ class DuctSystemGUI(QMainWindow):
             is_active = (duct_system == self.active_duct_system)
             opacity = 1.0 if is_active else 0.3  # Lower opacity for non-active systems
 
-            # Load branch points
-            for name, point in duct_system.branch_points.items():
-                if point['z'] == self.current_z:
-                    point_qt = QPointF(point['location'].x(), point['location'].y())
-                    color = Qt.red if point.get('is_endpoint', False) else Qt.green
-                    point_item = self.scene.addEllipse(
-                        point_qt.x() - 5, point_qt.y() - 5,
-                        self.annotation_point_size, self.annotation_point_size,
-                        QPen(color), QBrush(color)
-                    )
-                    point_item.setOpacity(opacity)
-                    self.point_items.setdefault(duct_system, {})[name] = point_item
+            # Keep track of branch points to draw
+            branch_points_to_draw = {}
 
-            # Load segments
+            # Load segments and determine which branch points to draw
             for segment_name, segment in duct_system.segments.items():
-                if segment.start_z == self.current_z or segment.end_z == self.current_z:
+                start_bp = duct_system.get_branch_point(segment.start_bp)
+                end_bp = duct_system.get_branch_point(segment.end_bp)
+                start_z = start_bp['z']
+                end_z = end_bp['z']
+
+                # Determine if the segment is connected to the current Z slice
+                if start_z == self.current_z or end_z == self.current_z:
+                    # Add branch points to draw
+                    branch_points_to_draw[segment.start_bp] = start_bp
+                    branch_points_to_draw[segment.end_bp] = end_bp
+
+            # Draw branch points
+            for name, point in branch_points_to_draw.items():
+                point_qt = QPointF(point['location'].x(), point['location'].y())
+                delta_z = point['z'] - self.current_z
+                max_delta_z = 5  # Adjust as needed
+
+                # Cap delta_z to be within [-max_delta_z, max_delta_z]
+                delta_z_capped = max(-max_delta_z, min(delta_z, max_delta_z))
+
+                # Map delta_z_capped to hue value
+                hue_start = 0  # Red
+                hue_middle = 120  # Green
+                hue_end = 240  # Blue
+
+                if delta_z_capped == 0:
+                    hue = hue_middle
+                elif delta_z_capped > 0:
+                    # Higher slices: Green to Blue
+                    hue = hue_middle + (delta_z_capped / max_delta_z) * (hue_end - hue_middle)
+                else:
+                    # Lower slices: Red to Green
+                    hue = hue_middle + (delta_z_capped / max_delta_z) * (hue_middle - hue_start)
+
+                hue = int(hue) % 360  # Ensure hue is within 0-359 degrees
+
+                color = QColor.fromHsv(hue, 255, 255)  # Full saturation and value
+
+                point_item = self.scene.addEllipse(
+                    point_qt.x() - 5, point_qt.y() - 5,
+                    self.annotation_point_size, self.annotation_point_size,
+                    QPen(color), QBrush(color)
+                )
+                point_item.setOpacity(opacity)
+                self.point_items.setdefault(duct_system, {})[name] = point_item
+
+            # Draw segments connected to the current Z slice
+            for segment_name, segment in duct_system.segments.items():
+                start_bp = duct_system.get_branch_point(segment.start_bp)
+                end_bp = duct_system.get_branch_point(segment.end_bp)
+                start_z = start_bp['z']
+                end_z = end_bp['z']
+
+                if start_z == self.current_z or end_z == self.current_z:
+                    # Determine if the segment connects to a different Z slice
+                    different_style = start_z != end_z
                     self.draw_segment_with_intermediates(
                         segment.start_bp, segment.end_bp,
                         list(segment.internal_points),
                         color_key=segment_name,
                         opacity=opacity,
-                        duct_system=duct_system  # Pass the duct system reference
+                        duct_system=duct_system,
+                        different_style=different_style
                     )
-                    # Load annotations
+
+                    # Load annotations on the current Z slice
                     for annotation in segment.annotations:
                         if annotation.get('z', self.current_z) == self.current_z:
                             point = QPointF(annotation['x'], annotation['y'])
@@ -537,14 +580,6 @@ class DuctSystemGUI(QMainWindow):
                                 QPen(annotation_color), QBrush(annotation_color)
                             )
                             annotation_item.setOpacity(opacity)
-                    # Load regions
-                    for region in segment.regions:
-                        polygon_item = self.scene.addPolygon(
-                            region,
-                            QPen(Qt.red, 2),
-                            QBrush(QColor(255, 0, 0, 50))
-                        )
-                        polygon_item.setOpacity(opacity)
 
     def clear_annotations(self):
         # Remove all items except the image
@@ -691,8 +726,9 @@ class DuctSystemGUI(QMainWindow):
         )
         self.dotted_lines.append(line)
 
-        # Store the point as a copy
+        # Store the point as a tuple (x, y)
         self.intermediate_points.append((point.x(), point.y()))
+
         self.statusBar().showMessage(f"Intermediate point added at {point}.")
 
     def finalize_segment(self, end_point):
@@ -742,7 +778,8 @@ class DuctSystemGUI(QMainWindow):
 
         # Draw temporary line from the last point (or start) to the current mouse position
         if self.intermediate_points:
-            last_point = QPointF(*self.intermediate_points[-1])  # Convert back to QPointF
+            last_intermediate = self.intermediate_points[-1]
+            last_point = QPointF(last_intermediate[0], last_intermediate[1])
         else:
             last_point = start_point
 
@@ -795,14 +832,18 @@ class DuctSystemGUI(QMainWindow):
             self.statusBar().showMessage("No active point set.")
 
     def draw_segment_with_intermediates(self, start_bp_name, end_bp_name, intermediate_points, color_key=None,
-                                        opacity=1.0, duct_system=None):
+                                        opacity=1.0, duct_system=None, different_style=False):
         if duct_system is None:
             duct_system = self.active_duct_system
 
-        start_point = duct_system.get_branch_point(start_bp_name)["location"]
-        end_point = duct_system.get_branch_point(end_bp_name)["location"]
+        start_bp = duct_system.get_branch_point(start_bp_name)
+        end_bp = duct_system.get_branch_point(end_bp_name)
+        start_point = start_bp["location"]
+        end_point = end_bp["location"]
 
-        previous_point = start_point
+        # Build the full list of points
+        full_points = [start_point] + [QPointF(x, y) for x, y in intermediate_points] + [end_point]
+
         segment_lines = []  # List to store all lines for the segment
 
         # Determine color
@@ -817,25 +858,24 @@ class DuctSystemGUI(QMainWindow):
             elif status == "Negative":
                 color = Qt.red
 
-        for point in intermediate_points:
-            point_qt = QPointF(*point)  # Convert tuple back to QPointF
+        # If different_style is True, adjust pen style or color
+        if different_style:
+            pen = QPen(Qt.gray, self.annotation_line_thickness, Qt.DashLine)
+        else:
+            pen = QPen(color, self.annotation_line_thickness)
+
+        # Draw lines between consecutive points
+        for i in range(len(full_points) - 1):
+            p1 = full_points[i]
+            p2 = full_points[i + 1]
+
             line = self.scene.addLine(
-                previous_point.x(), previous_point.y(),
-                point_qt.x(), point_qt.y(),
-                QPen(color, self.annotation_line_thickness)
+                p1.x(), p1.y(),
+                p2.x(), p2.y(),
+                pen
             )
             line.setOpacity(opacity)
             segment_lines.append(line)
-            previous_point = point_qt
-
-        # Add the final line segment to complete the segment
-        line = self.scene.addLine(
-            previous_point.x(), previous_point.y(),
-            end_point.x(), end_point.y(),
-            QPen(color, self.annotation_line_thickness)
-        )
-        line.setOpacity(opacity)
-        segment_lines.append(line)
 
         # Store the list of line items for the segment
         segment_name = f"{start_bp_name}to{end_bp_name}"
@@ -916,6 +956,16 @@ class DuctSystemGUI(QMainWindow):
             self.delete_most_recent_branch()
         elif event.key() == Qt.Key_N:
             self.activate_new_origin_mode()
+        elif event.key() == Qt.Key_Z:
+            self.prev_z_slice()
+            self.statusBar().showMessage("Navigated to the previous Z slice (Z key).")
+            self.status_message_timer.start()
+        elif event.key() == Qt.Key_X:
+            self.next_z_slice()
+            self.statusBar().showMessage("Navigated to the next Z slice (X key).")
+            self.status_message_timer.start()
+        else:
+            super().keyPressEvent(event)
 
     def reset_modes(self):
         self.selection_mode = False
