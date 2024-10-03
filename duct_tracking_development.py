@@ -810,7 +810,6 @@ class DuctSystemGUI(QMainWindow):
             for bp_name, bp in duct_system.branch_points.items():
                 if self.is_point_near(bp["location"], point):
                     self.active_duct_system = duct_system
-                    self.next_bp_name = int(bp_name.lstrip('bp')) + 1  # Update next_bp_name
                     self.load_annotations_for_current_z()
                     self.set_active_point(bp_name)
                     return
