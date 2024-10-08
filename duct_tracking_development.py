@@ -377,7 +377,7 @@ class DuctSystemGUI(QMainWindow):
                 self.active_duct_system = None
                 self.current_point_name = None
                 self.active_segment_name = None
-                self.next_bp_name = 1
+                # Do not reset next_bp_name here
 
                 # Check if the file contains duct_systems, else assume it's an older format
                 if 'duct_systems' in data:
@@ -431,6 +431,20 @@ class DuctSystemGUI(QMainWindow):
                 else:
                     self.active_duct_system = DuctSystem()
                     self.duct_systems.append(self.active_duct_system)
+
+                # After loading annotations, update next_bp_name
+                max_bp_number = 0
+                for duct_system in self.duct_systems:
+                    for bp_name in duct_system.branch_points.keys():
+                        # Extract numerical part from bp_name
+                        import re
+                        match = re.search(r'\d+', bp_name)
+                        if match:
+                            bp_number = int(match.group())
+                            if bp_number > max_bp_number:
+                                max_bp_number = bp_number
+                self.next_bp_name = max_bp_number + 1
+                # Now, when you add new branch points, they will have unique names
 
                 self.load_annotations_for_current_z()
                 self.statusBar().showMessage("Annotations loaded successfully.")
@@ -982,8 +996,18 @@ class DuctSystemGUI(QMainWindow):
 
         # Get the list of branch point names in the active duct system
         bp_names = list(self.active_duct_system.branch_points.keys())
+
+        # Extract numerical parts from branch point names, handling both 'bp1' and '1'
+        def get_bp_number(name):
+            import re
+            m = re.search(r'\d+', name)
+            if m:
+                return int(m.group())
+            else:
+                return 0
+
         # Sort them based on the numerical part of the branch point name
-        bp_names_sorted = sorted(bp_names, key=lambda x: int(x[2:]))
+        bp_names_sorted = sorted(bp_names, key=get_bp_number)
 
         # Identify the most recent branch point
         last_bp_name = bp_names_sorted[-1]
