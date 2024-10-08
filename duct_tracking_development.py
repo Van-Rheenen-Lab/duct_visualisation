@@ -980,13 +980,13 @@ class DuctSystemGUI(QMainWindow):
             self.statusBar().showMessage("No branch points to delete in the active duct system.")
             return
 
-        # Identify the most recent branch point
-        last_bp_name = f"bp{self.next_bp_name - 1}"
+        # Get the list of branch point names in the active duct system
+        bp_names = list(self.active_duct_system.branch_points.keys())
+        # Sort them based on the numerical part of the branch point name
+        bp_names_sorted = sorted(bp_names, key=lambda x: int(x[2:]))
 
-        # Check if the branch point exists
-        if last_bp_name not in self.active_duct_system.branch_points:
-            self.statusBar().showMessage("No branch point found to delete.")
-            return
+        # Identify the most recent branch point
+        last_bp_name = bp_names_sorted[-1]
 
         # Remove associated segments
         segments_to_remove = []
@@ -1003,12 +1003,10 @@ class DuctSystemGUI(QMainWindow):
             self.scene.removeItem(self.point_items[self.active_duct_system][last_bp_name])
             del self.point_items[self.active_duct_system][last_bp_name]
 
-        # Update the next branch point name
-        self.next_bp_name -= 1
-
         # Update current point name only if there are remaining branch points
-        if self.next_bp_name > 1 and f"bp{self.next_bp_name - 1}" in self.active_duct_system.branch_points:
-            self.set_active_point(f"bp{self.next_bp_name - 1}")
+        if len(bp_names_sorted) > 1:
+            new_last_bp_name = bp_names_sorted[-2]
+            self.set_active_point(new_last_bp_name)
         else:
             self.current_point_name = None
             self.statusBar().showMessage("All branch points have been deleted.")
@@ -1404,7 +1402,7 @@ class DuctSystemGUI(QMainWindow):
         # Create a new duct system
         self.active_duct_system = DuctSystem()
         self.duct_systems.append(self.active_duct_system)
-        self.next_bp_name = 1  # Reset branch point numbering
+
         self.current_point_name = None  # Reset current point
         self.point_items = {}  # Reset point items for the new duct system
         self.segment_items = {}  # Reset segment items for the new duct system
