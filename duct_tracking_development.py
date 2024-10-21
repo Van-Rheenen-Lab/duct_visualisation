@@ -6,12 +6,13 @@ from PyQt5.QtWidgets import (
     QSlider, QColorDialog, QComboBox, QMessageBox
 )
 from PyQt5.QtGui import (
-    QPixmap, QImage, QPen, QBrush, QCursor, QColor, QPolygonF
+    QPixmap, QImage, QPen, QBrush, QCursor, QColor
 )
 from PyQt5.QtCore import Qt, QPointF, QPoint, QTimer, QEvent
 import json
 import numpy as np
 import tifffile
+import cv2
 from imagecodecs import zstd_decode
 
 class DuctSystemGUI(QMainWindow):
@@ -52,7 +53,6 @@ class DuctSystemGUI(QMainWindow):
         # New features flags
         self.continuous_draw_mode = False  # Flag for continuous drawing
         self.drawing_continuous = False  # Flag to track continuous drawing
-        self.annotate_region_mode = False  # Flag for region annotation mode
         self.new_origin_mode = False  # Flag for new origin mode
 
         # Initialize channels
@@ -101,9 +101,17 @@ class DuctSystemGUI(QMainWindow):
         edit_properties_action.triggered.connect(self.show_edit_properties_dialog)
         edit_menu.addAction(edit_properties_action)
 
+        delete_selected_bp_action = QAction('Delete Selected Branch Point And All Children', self)
+        delete_selected_bp_action.triggered.connect(self.delete_selected_branch_point_and_descendants)
+        edit_menu.addAction(delete_selected_bp_action)
+
         edit_line_color_action = QAction('Edit Line Colors', self)
         edit_line_color_action.triggered.connect(self.edit_line_colors)
         edit_menu.addAction(edit_line_color_action)
+
+        annotate_segment_action = QAction('Annotate Segment', self)
+        annotate_segment_action.triggered.connect(self.annotate_active_segment)
+        edit_menu.addAction(annotate_segment_action)
 
         # Modes menu
         modes_menu = menubar.addMenu('Modes')
@@ -111,14 +119,6 @@ class DuctSystemGUI(QMainWindow):
         self.continuous_draw_action = QAction('Continuous Draw Mode', self, checkable=True)
         self.continuous_draw_action.triggered.connect(self.toggle_continuous_draw_mode)
         modes_menu.addAction(self.continuous_draw_action)
-
-        annotate_segment_action = QAction('Annotate Segment', self)
-        annotate_segment_action.triggered.connect(self.annotate_active_segment)
-        edit_menu.addAction(annotate_segment_action)
-
-        annotate_region_action = QAction('Annotate Region', self)
-        annotate_region_action.triggered.connect(self.toggle_annotate_region_mode)
-        modes_menu.addAction(annotate_region_action)
 
         # Channels menu
         channels_menu = menubar.addMenu('Channels')
@@ -226,7 +226,6 @@ class DuctSystemGUI(QMainWindow):
                             'start_z': segment.start_z,
                             'end_z': segment.end_z,
                             'annotations': [{'name': a['name'], 'x': a['x'], 'y': a['y']} for a in segment.annotations],
-                            'regions': [[{'x': p.x(), 'y': p.y()} for p in region] for region in segment.regions],
                             'properties': segment.properties
                         }
                         for name, segment in duct_system.segments.items()
@@ -273,19 +272,16 @@ class DuctSystemGUI(QMainWindow):
 
                     # Initialize list of axes labels and indices
                     current_axes = list(axes)
-                    current_shape = img_array.shape
 
                     # Add Z axis if missing
                     if 'Z' not in current_axes:
                         img_array = img_array[np.newaxis, ...]
                         current_axes = ['Z'] + current_axes
-                        current_shape = img_array.shape
 
                     # Add C axis if missing
                     if 'C' not in current_axes:
                         img_array = img_array[..., np.newaxis]
                         current_axes = current_axes + ['C']
-                        current_shape = img_array.shape
 
                     # Now, build a mapping from axes labels to indices
                     dims = {axis: i for i, axis in enumerate(current_axes)}
@@ -300,11 +296,27 @@ class DuctSystemGUI(QMainWindow):
                 # Store channels separately
                 self.channels = {}
                 self.channel_brightness = {}
+                self.downscaled_channels = {}
+                self.scale_factor = 0.3
+
                 for c in range(num_channels):
                     channel_name = f"Channel{c + 1}"
                     channel_data = img_array[:, c, :, :]  # Shape: (num_z_slices, height, width)
                     self.channels[channel_name] = channel_data
                     self.channel_brightness[channel_name] = 1.0
+
+                    # Now create downscaled versions
+                    downscaled_data = []
+                    for z in range(num_z_slices):
+                        image = channel_data[z]
+                        height, width = image.shape
+                        new_height = int(height * self.scale_factor)
+                        new_width = int(width * self.scale_factor)
+                        downscaled_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                        downscaled_data.append(downscaled_image)
+                    downscaled_data = np.array(downscaled_data)
+                    self.downscaled_channels[channel_name] = downscaled_data
+
                 self.total_z_slices = num_z_slices
                 self.current_z = 0
                 self.display_current_z_slice()
@@ -328,12 +340,13 @@ class DuctSystemGUI(QMainWindow):
                 self.status_message_timer.start()  # Start timer to reset status message
                 return True
         return super().eventFilter(source, event)
+
     def clear_status_message(self):
         """Clear the status bar message."""
         self.statusBar().clearMessage()
 
     def display_current_z_slice(self):
-        if self.channels and self.total_z_slices > 0:
+        if self.downscaled_channels and self.total_z_slices > 0:
             # Combine channels with brightness settings
             combined_frame = self.combine_channels()
             if combined_frame is None:
@@ -352,6 +365,8 @@ class DuctSystemGUI(QMainWindow):
                 view_rect = None
 
             self.pixmap_item = QGraphicsPixmapItem(pixmap)
+            self.pixmap_item.setTransformationMode(Qt.SmoothTransformation)
+            self.pixmap_item.setScale(1 / self.scale_factor)  # Scale the pixmap to match original size
             self.scene.addItem(self.pixmap_item)
 
             if view_rect is not None:
@@ -414,11 +429,6 @@ class DuctSystemGUI(QMainWindow):
                         for annotation in segment.get('annotations', []):
                             segment_obj.add_annotation(annotation)
 
-                        # Load regions
-                        for region_points in segment.get('regions', []):
-                            polygon = QPolygonF([QPointF(p['x'], p['y']) for p in region_points])
-                            segment_obj.add_region(polygon)
-
                         # Load properties
                         properties = segment.get('properties', {})
                         segment_obj.properties = properties
@@ -451,11 +461,11 @@ class DuctSystemGUI(QMainWindow):
 
     def combine_channels(self):
         # Initialize an empty array for the combined image
-        first_channel_data = next(iter(self.channels.values()))
+        first_channel_data = next(iter(self.downscaled_channels.values()))
         height, width = first_channel_data[self.current_z].shape
         combined_frame = np.zeros((height, width, 3), dtype=np.float32)  # Use float32 for accumulation
 
-        for idx, (channel_name, channel_data) in enumerate(self.channels.items()):
+        for idx, (channel_name, channel_data) in enumerate(self.downscaled_channels.items()):
             frame = channel_data[self.current_z].astype(np.float32)
             brightness = self.channel_brightness.get(channel_name, 1.0)
             frame_adjusted = frame * brightness
@@ -472,21 +482,15 @@ class DuctSystemGUI(QMainWindow):
         combined_frame = np.clip(combined_frame, 0, 255).astype(np.uint8)
         return combined_frame
 
-    def adjust_brightness_numpy(self, frame, brightness_factor):
-        frame_float = frame.astype(np.float32)
-        frame_adjusted = frame_float * brightness_factor
-        frame_adjusted = np.clip(frame_adjusted, 0, 255)
-        return frame_adjusted
-
     def get_channel_color(self, index):
         colors = [
-            (255, 0, 0),  # Red
-            (0, 255, 0),  # Green
-            (0, 0, 255),  # Blue
+            (255, 0, 0),    # Red
+            (0, 255, 0),    # Green
+            (0, 0, 255),    # Blue
             (255, 255, 0),  # Yellow
             (255, 0, 255),  # Magenta
             (0, 255, 255),  # Cyan
-            (255, 255, 255)  # White
+            (255, 255, 255) # White
         ]
         return colors[index % len(colors)]
 
@@ -520,6 +524,9 @@ class DuctSystemGUI(QMainWindow):
             for segment_name, segment in duct_system.segments.items():
                 start_bp = duct_system.get_branch_point(segment.start_bp)
                 end_bp = duct_system.get_branch_point(segment.end_bp)
+                if start_bp is None or end_bp is None:
+                    # Skip this segment if branch points are missing
+                    continue
                 start_z = start_bp['z']
                 end_z = end_bp['z']
 
@@ -539,9 +546,9 @@ class DuctSystemGUI(QMainWindow):
                 delta_z_capped = max(-max_delta_z, min(delta_z, max_delta_z))
 
                 # Map delta_z_capped to hue value
-                hue_start = 0  # Red
-                hue_middle = 120  # Green
-                hue_end = 240  # Blue
+                hue_start = 0    # Red
+                hue_middle = 120 # Green
+                hue_end = 240    # Blue
 
                 if delta_z_capped == 0:
                     hue = hue_middle
@@ -608,8 +615,6 @@ class DuctSystemGUI(QMainWindow):
         if self.panning_mode:
             self.pan_start = event.pos()  # Capture the mouse position at the start of the panning
             self.view.setCursor(Qt.ClosedHandCursor)
-        elif self.annotate_region_mode:
-            self.handle_region_mouse_press(event)
         else:
             point = self.view.mapToScene(event.pos())
             if self.annotation_mode and self.active_segment_name:
@@ -651,7 +656,9 @@ class DuctSystemGUI(QMainWindow):
         elif self.segment_mode:
             # Clear the temp line if in segment mode but not actively drawing
             self.clear_temp_line()
-        elif not self.selection_mode and not self.panning_mode and self.current_point_name is not None:
+        elif self.new_origin_mode:
+            self.clear_temp_line()
+        elif not self.selection_mode and not self.panning_mode and not self.new_origin_mode and self.current_point_name is not None:
             # Update the temp line if no specific mode is active (normal mode)
             point = self.view.mapToScene(event.pos())
             self.update_temp_line(point)
@@ -710,12 +717,16 @@ class DuctSystemGUI(QMainWindow):
         self.active_duct_system.add_branch_point(bp_name, point, z, is_endpoint=is_endpoint)
         color = Qt.red if is_endpoint else Qt.green
         point_item = self.scene.addEllipse(
-            point.x() - 5, point.y() - 5,
+            point.x() - (self.annotation_point_size / 2), point.y() - (self.annotation_point_size / 2),
             self.annotation_point_size, self.annotation_point_size,
             QPen(color), QBrush(color)
         )
-        point_item.setOpacity(1.0 if self.active_duct_system == self.active_duct_system else 0.3)
-        self.point_items.setdefault(self.active_duct_system, {})[bp_name] = point_item
+
+        # Ensure that the dictionary for the active duct system exists
+        if self.active_duct_system not in self.point_items:
+            self.point_items[self.active_duct_system] = {}
+        self.point_items[self.active_duct_system][bp_name] = point_item
+
         self.set_active_point(bp_name)
         self.statusBar().showMessage(f"Branch point '{bp_name}' created at {point} on Z slice {z}.")
 
@@ -859,8 +870,8 @@ class DuctSystemGUI(QMainWindow):
 
         segment_lines = []  # List to store all lines for the segment
 
-        # Determine color
-        color = self.annotation_colors.get(color_key or "default_segment", Qt.blue)
+        # Use the default line color
+        color = self.default_line_color if hasattr(self, 'default_line_color') else Qt.blue
 
         # Adjust color based on segment properties (e.g., Positive/Negative)
         segment = duct_system.get_segment(f"{start_bp_name}to{end_bp_name}")
@@ -897,16 +908,6 @@ class DuctSystemGUI(QMainWindow):
         # Set as active segment if in Segment Mode and if this is the active duct system
         if self.segment_mode and duct_system == self.active_duct_system:
             self.set_active_segment(segment_name)
-
-        # Handle regions if any
-        if segment and segment.regions:
-            for region in segment.regions:
-                polygon_item = self.scene.addPolygon(
-                    region,
-                    QPen(Qt.red, 2),
-                    QBrush(QColor(255, 0, 0, 50))
-                )
-                polygon_item.setOpacity(opacity)
 
     def set_active_segment(self, segment_name):
         # Reset the color of the previous active segment to its original color
@@ -968,6 +969,9 @@ class DuctSystemGUI(QMainWindow):
         elif event.key() == Qt.Key_Delete:
             self.delete_most_recent_branch()
         elif event.key() == Qt.Key_N:
+            self.clear_temp_line()
+            self.clear_dotted_lines()
+            self.clear_intermediate_points()
             self.activate_new_origin_mode()
         elif event.key() == Qt.Key_Z:
             self.prev_z_slice()
@@ -989,6 +993,37 @@ class DuctSystemGUI(QMainWindow):
         self.statusBar().showMessage("Modes reset.")
         self.update_mode_display()
 
+    def delete_branch_point_and_descendants(self, bp_name, duct_system, visited_bps=None):
+        if visited_bps is None:
+            visited_bps = set()
+        if bp_name in visited_bps:
+            return
+        visited_bps.add(bp_name)
+
+        # First, get the branch point from the duct system
+        bp = duct_system.get_branch_point(bp_name)
+        if bp is None:
+            return  # Branch point does not exist
+
+        # Find all segments connected to this branch point
+        segments_to_delete = []
+        for segment_name, segment in list(duct_system.segments.items()):
+            if segment.start_bp == bp_name or segment.end_bp == bp_name:
+                segments_to_delete.append(segment_name)
+
+        # For each segment, handle deletion
+        for segment_name in segments_to_delete:
+            segment = duct_system.get_segment(segment_name)
+            if segment.start_bp == bp_name:
+                end_bp_name = segment.end_bp
+                # Recursively delete downstream branch points
+                self.delete_branch_point_and_descendants(end_bp_name, duct_system, visited_bps)
+            # Remove the segment
+            self.remove_segment(segment_name, duct_system)
+
+        # Remove the branch point
+        self.remove_branch_point_and_item(bp_name, duct_system)
+
     def delete_most_recent_branch(self):
         if not self.active_duct_system.branch_points:
             self.statusBar().showMessage("No branch points to delete in the active duct system.")
@@ -997,7 +1032,7 @@ class DuctSystemGUI(QMainWindow):
         # Get the list of branch point names in the active duct system
         bp_names = list(self.active_duct_system.branch_points.keys())
 
-        # Extract numerical parts from branch point names, handling both 'bp1' and '1'
+        # Extract numerical parts from branch point names
         def get_bp_number(name):
             import re
             m = re.search(r'\d+', name)
@@ -1012,43 +1047,42 @@ class DuctSystemGUI(QMainWindow):
         # Identify the most recent branch point
         last_bp_name = bp_names_sorted[-1]
 
-        # Remove associated segments
-        segments_to_remove = []
-        for segment_name, segment in self.active_duct_system.segments.items():
-            if segment.start_bp == last_bp_name or segment.end_bp == last_bp_name:
-                segments_to_remove.append(segment_name)
+        # Delete the branch point and its descendants
+        self.delete_branch_point_and_descendants(last_bp_name, self.active_duct_system)
 
-        for segment_name in segments_to_remove:
-            self.remove_segment(segment_name)
-
-        # Remove the branch point from the duct_system and scene
-        self.active_duct_system.remove_branch_point(last_bp_name)
-        if last_bp_name in self.point_items.get(self.active_duct_system, {}):
-            self.scene.removeItem(self.point_items[self.active_duct_system][last_bp_name])
-            del self.point_items[self.active_duct_system][last_bp_name]
-
-        # Update current point name only if there are remaining branch points
-        if len(bp_names_sorted) > 1:
-            new_last_bp_name = bp_names_sorted[-2]
+        # Update current point name
+        remaining_bp_names = list(self.active_duct_system.branch_points.keys())
+        if remaining_bp_names:
+            remaining_bp_names_sorted = sorted(remaining_bp_names, key=get_bp_number)
+            new_last_bp_name = remaining_bp_names_sorted[-1]
             self.set_active_point(new_last_bp_name)
         else:
             self.current_point_name = None
             self.statusBar().showMessage("All branch points have been deleted.")
 
-        self.statusBar().showMessage(f"Branch point '{last_bp_name}' and associated segments deleted.")
+        self.load_annotations_for_current_z()  # Refresh the display
 
-    def remove_segment(self, segment_name):
-        if segment_name in self.segment_items.get(self.active_duct_system, {}):
+        self.statusBar().showMessage(f"Branch point '{last_bp_name}' and downstream elements deleted.")
+
+    def delete_selected_branch_point_and_descendants(self):
+        if self.current_point_name:
+            bp_name = self.current_point_name
+            self.delete_branch_point_and_descendants(bp_name, self.active_duct_system)
+            self.current_point_name = None
+            self.load_annotations_for_current_z()
+            self.statusBar().showMessage(f"Branch point '{bp_name}' and its descendants have been deleted.")
+        else:
+            QMessageBox.warning(self, "Delete Branch Point", "No branch point is currently selected.")
+
+    def remove_segment(self, segment_name, duct_system):
+        if segment_name in self.segment_items.get(duct_system, {}):
             # Remove the visual segment lines
-            for segment_item in self.segment_items[self.active_duct_system][segment_name]:
+            for segment_item in self.segment_items[duct_system][segment_name]:
                 self.scene.removeItem(segment_item)
-            del self.segment_items[self.active_duct_system][segment_name]
+            del self.segment_items[duct_system][segment_name]
 
-        if segment_name in self.active_duct_system.segments:
-            segment = self.active_duct_system.segments[segment_name]
-            start_bp = segment.start_bp
-            end_bp = segment.end_bp
-
+        if segment_name in duct_system.segments:
+            segment = duct_system.segments[segment_name]
             # Remove annotations associated with this segment
             for annotation in segment.annotations:
                 annotation_point = QPointF(annotation['x'], annotation['y'])
@@ -1056,27 +1090,15 @@ class DuctSystemGUI(QMainWindow):
                 for item in items_at_point:
                     if isinstance(item, QGraphicsEllipseItem):
                         self.scene.removeItem(item)
-
             # Delete the segment from the duct system
-            del self.active_duct_system.segments[segment_name]
+            del duct_system.segments[segment_name]
 
-            # Check if the start or end branch points are still part of any segment
-            if not any(start_bp in (seg.start_bp, seg.end_bp) for seg in self.active_duct_system.segments.values()):
-                # Remove the start branch point if it's not used in any other segment
-                self.remove_branch_point_and_item(start_bp)
-
-            if not any(end_bp in (seg.start_bp, seg.end_bp) for seg in self.active_duct_system.segments.values()):
-                # Remove the end branch point if it's not used in any other segment
-                self.remove_branch_point_and_item(end_bp)
-
-            self.statusBar().showMessage(f"Segment '{segment_name}' and unused branch points deleted.")
-
-    def remove_branch_point_and_item(self, bp_name):
+    def remove_branch_point_and_item(self, bp_name, duct_system):
         """Helper method to remove a branch point and its associated graphic item."""
-        self.active_duct_system.remove_branch_point(bp_name)
-        if bp_name in self.point_items.get(self.active_duct_system, {}):
-            self.scene.removeItem(self.point_items[self.active_duct_system][bp_name])
-            del self.point_items[self.active_duct_system][bp_name]
+        duct_system.remove_branch_point(bp_name)
+        if bp_name in self.point_items.get(duct_system, {}):
+            self.scene.removeItem(self.point_items[duct_system][bp_name])
+            del self.point_items[duct_system][bp_name]
 
     def toggle_segment_mode(self):
         self.segment_mode = not self.segment_mode
@@ -1194,8 +1216,6 @@ class DuctSystemGUI(QMainWindow):
                     hue = i / len(self.default_annotation_names)
                     color = QColor.fromHsv(int(hue * 360), 255, 255)
                     self.annotation_colors[new_name] = color
-                # Optionally, remove old name from annotation_colors
-                # ...
 
     def show_edit_properties_dialog(self):
         dialog = QDialog(self)
@@ -1288,21 +1308,18 @@ class DuctSystemGUI(QMainWindow):
         self.statusBar().showMessage("Annotation properties updated.")
 
     def edit_line_colors(self):
-        if not self.active_segment_name:
-            QMessageBox.warning(self, "Edit Line Colors", "No active segment selected. Please select a segment first.")
-            return
-
         color = QColorDialog.getColor()
         if color.isValid():
-            # Update the color in the annotation_colors dictionary
-            self.annotation_colors[self.active_segment_name] = color
+            # Set the default line color
+            self.default_line_color = color
 
-            # Update the visual representation
-            if self.active_segment_name in self.segment_items.get(self.active_duct_system, {}):
-                for line_item in self.segment_items[self.active_duct_system][self.active_segment_name]:
-                    line_item.setPen(QPen(color, self.annotation_line_thickness))
+            # Update the visual representation of all existing segments
+            for duct_system in self.duct_systems:
+                for segment_name, segment_lines in self.segment_items.get(duct_system, {}).items():
+                    for line_item in segment_lines:
+                        line_item.setPen(QPen(color, self.annotation_line_thickness))
 
-            self.statusBar().showMessage(f"Segment '{self.active_segment_name}' color updated.")
+            self.statusBar().showMessage("All segment line colors updated.")
 
     def annotate_active_segment(self):
         if not self.active_segment_name:
@@ -1381,42 +1398,6 @@ class DuctSystemGUI(QMainWindow):
         self.statusBar().showMessage("Continuous Draw Mode "
                                      f"{'Activated' if self.continuous_draw_mode else 'Deactivated'}.")
 
-    def toggle_annotate_region_mode(self):
-        self.annotate_region_mode = not self.annotate_region_mode
-        if self.annotate_region_mode:
-            self.region_points = []  # Start a new region
-            self.statusBar().showMessage("Region Annotation Mode: Click to define vertices. Right-click to complete.")
-            self.view.setCursor(QCursor(Qt.CrossCursor))
-        else:
-            self.statusBar().showMessage("Region Annotation Mode deactivated.")
-            self.view.setCursor(QCursor(Qt.ArrowCursor))
-
-    def handle_region_mouse_press(self, event):
-        if event.button() == Qt.LeftButton:
-            point = self.view.mapToScene(event.pos())
-            self.region_points.append(point)
-            if len(self.region_points) > 1:
-                polygon = self.create_polygon(self.region_points)
-                if hasattr(self, 'region_polygon'):
-                    self.scene.removeItem(self.region_polygon)
-                self.region_polygon = self.scene.addPolygon(polygon, QPen(Qt.red, 2), QBrush(QColor(255, 0, 0, 50)))
-        elif event.button() == Qt.RightButton and len(self.region_points) > 2:
-            # Finalize region and associate with the active segment
-            polygon = self.create_polygon(self.region_points)
-            if self.active_segment_name:
-                segment = self.active_duct_system.get_segment(self.active_segment_name)
-                if segment:
-                    segment.add_region(polygon)
-                    self.statusBar().showMessage(f"Region added to segment '{self.active_segment_name}'.")
-            self.region_points.clear()
-            if hasattr(self, 'region_polygon'):
-                self.scene.removeItem(self.region_polygon)
-                del self.region_polygon
-            self.toggle_annotate_region_mode()
-
-    def create_polygon(self, points):
-        return QPolygonF(points)
-
     def activate_new_origin_mode(self):
         self.new_origin_mode = True
         self.statusBar().showMessage("New Origin Mode: Click to set a new origin.")
@@ -1428,8 +1409,6 @@ class DuctSystemGUI(QMainWindow):
         self.duct_systems.append(self.active_duct_system)
 
         self.current_point_name = None  # Reset current point
-        self.point_items = {}  # Reset point items for the new duct system
-        self.segment_items = {}  # Reset segment items for the new duct system
         self.active_segment_name = None  # Reset active segment
         self.intermediate_points.clear()
         self.clear_temp_line()
@@ -1437,9 +1416,12 @@ class DuctSystemGUI(QMainWindow):
         # Now add the new origin
         origin_name = f"bp{self.next_bp_name}"
         self.add_branch_point(point, origin_name)
-        self.current_point_name = origin_name
         self.next_bp_name += 1
+        self.current_point_name = origin_name  # Set the current point to the new origin
         self.statusBar().showMessage(f"New origin set at {point}.")
+
+        # Ensure the new origin point is visible immediately
+        self.load_annotations_for_current_z()
 
     def show_brightness_dialog(self):
         if not self.channels:
@@ -1470,21 +1452,6 @@ class DuctSystemGUI(QMainWindow):
         dialog.setLayout(layout)
         dialog.exec_()
 
-    def mark_branch_point_as_endpoint(self):
-        if self.current_point_name:
-            bp = self.active_duct_system.get_branch_point(self.current_point_name)
-            if bp:
-                bp["is_endpoint"] = True
-                self.update_branch_point_visual(bp["name"])
-                self.statusBar().showMessage(f"Branch point '{bp['name']}' marked as endpoint.")
-
-    def update_branch_point_visual(self, bp_name):
-        bp = self.active_duct_system.get_branch_point(bp_name)
-        if bp and bp_name in self.point_items.get(self.active_duct_system, {}):
-            point_item = self.point_items[self.active_duct_system][bp_name]
-            color = Qt.red if bp.get('is_endpoint', False) else Qt.green
-            point_item.setBrush(QBrush(color))
-
     def update_channel_brightness(self):
         slider = self.sender()
         if slider:
@@ -1507,12 +1474,9 @@ class DuctSystemGUI(QMainWindow):
             "- Use 'Z' or 'X' to navigate between Z slices (up and down).\n"
             "- Press 'N' to create a new origin.\n"
             "- Use the 'Edit' menu to customize annotation names, properties, and segment colors.\n"
-            "- You can annotate regions by enabling 'Annotate Region Mode' in the 'Modes' menu.\n"
             "- Use the 'Brightness' option in the 'Channels' menu to adjust the brightness of individual channels.\n\n"
 
-            "Future Features: Undo/Redo buttons, adjustable branch point size, and advanced analysis functions.\n\n"
-
-            "Note that creating multiple origins changes the behaviour of the deletion button. Will be fixed"
+            "Note that the menu contains an option to delete any branch point and its children.\n\n"
 
             "Developed by Jeroen Doornbos based on a version from Jacco van Rheenen."
         )
@@ -1536,7 +1500,7 @@ class DuctSystemGUI(QMainWindow):
         dialog.exec_()
 
 
-# Supporting classes for Duct System (unchanged)
+# Supporting classes for Duct System
 class DuctSystem:
     def __init__(self):
         self.branch_points = {}
@@ -1557,16 +1521,6 @@ class DuctSystem:
         if name in self.branch_points:
             del self.branch_points[name]
 
-    def get_previous_branch_point(self, name):
-        # Helper method to find the previous branch point
-        sorted_names = sorted(self.branch_points.keys())
-        try:
-            index = sorted_names.index(name)
-            if index > 0:
-                return sorted_names[index - 1]
-        except ValueError:
-            return None
-
     def add_segment(self, start_bp, end_bp, segment_name, intermediate_points):
         if start_bp in self.branch_points and end_bp in self.branch_points:
             segment = DuctSegment(start_bp, end_bp, segment_name)
@@ -1584,7 +1538,6 @@ class DuctSegment:
         self.segment_name = segment_name
         self.internal_points = []  # List to store internal points between branch points
         self.annotations = []  # List to store annotations
-        self.regions = []  # List to store regions (polygons)
         self.start_z = None  # Z-coordinate of start branch point
         self.end_z = None  # Z-coordinate of end branch point
         self.properties = {}  # Dictionary to store segment properties
@@ -1593,20 +1546,12 @@ class DuctSegment:
         self.start_z = start_z
         self.end_z = end_z
 
-    def add_internal_point(self, point):
-        """Add an internal point to the segment."""
-        self.internal_points.append((point.x(), point.y()))  # Store as tuple
-
     def get_internal_points(self):
         return self.internal_points
 
     def add_annotation(self, annotation):
         """Add an annotation to the segment."""
         self.annotations.append(annotation)
-
-    def add_region(self, polygon):
-        """Add a polygon region to the segment."""
-        self.regions.append(polygon)
 
     def add_property(self, key, value):
         self.properties[key] = value
