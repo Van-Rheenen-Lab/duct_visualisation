@@ -12,7 +12,7 @@ def extract_bp_number(bp_name):
     return None  # Return None if not a standard 'bp' name
 
 # Load the JSON data
-with open(r'C:/Users/j.doornbos/Downloads/annotations_1_corruption_amputated.json', 'r') as file:
+with open(r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json', 'r') as file:
     data = json.load(file)
 
 # We'll process each duct system in the data
@@ -171,7 +171,7 @@ for system_index, duct_system in enumerate(data["duct_systems"]):
             # Use original names for labels
             original_name = reverse_name_mapping.get(node, node)
             ax.scatter(x, y, s=100, c=[color], edgecolors='k')
-            ax.text(x, y + 0.1, str(original_name), ha='center', va='bottom', fontsize=8)
+            # ax.text(x, y + 0.1, str(original_name), ha='center', va='bottom', fontsize=8)
 
         # Create a colorbar
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=max_depth))
@@ -192,7 +192,7 @@ for system_index, duct_system in enumerate(data["duct_systems"]):
     colors = [partition[node] for node in G.nodes()]
 
     plt.figure(figsize=(12, 8))
-    nx.draw(G, pos, node_color=colors, with_labels=True, cmap=plt.cm.Set3, node_size=500)
+    nx.draw(G, pos, node_color=colors, with_labels=False, cmap=plt.cm.Set3, node_size=500)
     plt.title('Community Detection in the Duct System')
     plt.show()
 
@@ -213,7 +213,7 @@ for system_index, duct_system in enumerate(data["duct_systems"]):
     fig, ax = plt.subplots(figsize=(12, 8))
 
     # Draw the graph on the specified Axes
-    nx.draw(G, pos, node_color=node_colors, cmap=plt.cm.viridis, with_labels=True, node_size=500, ax=ax)
+    nx.draw(G, pos, node_color=node_colors, cmap=plt.cm.viridis, with_labels=False, node_size=500, ax=ax)
 
     # Create the ScalarMappable for the colorbar
     sm = plt.cm.ScalarMappable(cmap=plt.cm.viridis, norm=plt.Normalize(vmin=0, vmax=1))
