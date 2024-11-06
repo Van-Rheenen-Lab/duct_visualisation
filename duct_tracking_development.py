@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
     QVBoxLayout, QPushButton, QWidget, QFileDialog, QAction, QHBoxLayout,
     QInputDialog, QLineEdit, QGraphicsEllipseItem, QTextEdit, QDialog, QLabel,
-    QSlider, QColorDialog, QComboBox, QMessageBox
+    QSlider, QColorDialog, QComboBox, QMessageBox, QDoubleSpinBox
 )
 from PyQt5.QtGui import (
     QPixmap, QImage, QPen, QBrush, QCursor, QColor
@@ -60,6 +60,7 @@ class DuctSystemGUI(QMainWindow):
         self.channel_brightness = {}  # Brightness settings for each channel
         self.current_z = 0  # Current Z slice index
         self.total_z_slices = 0  # Total number of Z slices
+        self.scale_factor = 1  # Default downscale factor
 
         self.installEventFilter(self)  # Install an event filter to capture key presses
 
@@ -134,6 +135,13 @@ class DuctSystemGUI(QMainWindow):
         show_instructions_action.triggered.connect(self.show_instructions_dialog)
         instructions_menu.addAction(show_instructions_action)
 
+        # Settings menu for Downscale Factor
+        settings_menu = menubar.addMenu('Settings')
+
+        set_downscale_action = QAction('Set Downscale Factor', self)
+        set_downscale_action.triggered.connect(self.set_downscale_factor_dialog)
+        settings_menu.addAction(set_downscale_action)
+
         # Initialize graphics scene and view
         self.scene = QGraphicsScene(self)
         self.view = QGraphicsView(self.scene, self)
@@ -201,6 +209,12 @@ class DuctSystemGUI(QMainWindow):
         self.view.setCursor(QCursor(Qt.CrossCursor))
 
         self.update_mode_display()
+
+    def get_adjusted_point_size(self):
+        return self.annotation_point_size * self.scale_factor
+
+    def get_adjusted_line_thickness(self):
+        return self.annotation_line_thickness * self.scale_factor
 
     def save_annotations(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Save Annotations", "", "JSON Files (*.json);;All Files (*)")
@@ -297,7 +311,6 @@ class DuctSystemGUI(QMainWindow):
                 self.channels = {}
                 self.channel_brightness = {}
                 self.downscaled_channels = {}
-                self.scale_factor = 0.3
 
                 for c in range(num_channels):
                     channel_name = f"Channel{c + 1}"
@@ -351,33 +364,106 @@ class DuctSystemGUI(QMainWindow):
             combined_frame = self.combine_channels()
             if combined_frame is None:
                 return  # Error message already shown in combine_channels
+
             # Convert combined_frame to QImage
             height, width = combined_frame.shape[:2]
             bytes_per_line = 3 * width
-            qimage = QImage(combined_frame.data.tobytes(), width, height, bytes_per_line, QImage.Format_RGB888)
+            qimage = QImage(
+                combined_frame.data.tobytes(),
+                width,
+                height,
+                bytes_per_line,
+                QImage.Format_RGB888
+            )
             pixmap = QPixmap.fromImage(qimage)
 
-            if hasattr(self, 'pixmap_item') and self.pixmap_item:
-                # Preserve the current view rectangle
-                view_rect = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
-                self.scene.removeItem(self.pixmap_item)
-            else:
-                view_rect = None
-
-            self.pixmap_item = QGraphicsPixmapItem(pixmap)
-            self.pixmap_item.setTransformationMode(Qt.SmoothTransformation)
-            self.pixmap_item.setScale(1 / self.scale_factor)  # Scale the pixmap to match original size
-            self.scene.addItem(self.pixmap_item)
-
-            if view_rect is not None:
-                self.view.setSceneRect(view_rect)  # Preserve the previous view rect
-            else:
+            if not hasattr(self, 'pixmap_item') or not self.pixmap_item:
+                # Create the pixmap item if it does not exist
+                self.pixmap_item = QGraphicsPixmapItem(pixmap)
+                self.pixmap_item.setTransformationMode(Qt.SmoothTransformation)
+                self.scene.addItem(self.pixmap_item)
+                self.scene.setSceneRect(self.pixmap_item.boundingRect())
                 self.view.fitInView(self.pixmap_item, Qt.KeepAspectRatio)
+            else:
+                # Update the existing pixmap without removing it
+                self.pixmap_item.setPixmap(pixmap)
+                self.pixmap_item.setPos(0, 0)  # Ensure consistent positioning
 
+                # Update the scene rectangle to the pixmap's bounding rectangle
+                self.scene.setSceneRect(self.pixmap_item.boundingRect())
+
+                # Preserve the current center of the view
+                current_center = self.view.mapToScene(self.view.viewport().rect().center())
+                self.view.centerOn(current_center)
+
+            # Update the Z slice label and annotations
             self.z_label.setText(f"Z Slice: {self.current_z + 1}/{self.total_z_slices}")
             self.load_annotations_for_current_z()
         else:
             QMessageBox.warning(self, "Display Image", "No channels loaded.")
+
+    def set_downscale_factor_dialog(self):
+        """Open a dialog to set the downscale factor."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Set Downscale Factor")
+        dialog.resize(300, 150)
+
+        layout = QVBoxLayout()
+
+        layout.addWidget(QLabel("Select Downscale Factor (0.1 - 1.0):"))
+
+        self.downscale_spinbox = QDoubleSpinBox(dialog)
+        self.downscale_spinbox.setRange(0.1, 1.0)
+        self.downscale_spinbox.setSingleStep(0.05)
+        self.downscale_spinbox.setValue(self.scale_factor)
+        layout.addWidget(self.downscale_spinbox)
+
+        # Apply and Close buttons
+        button_layout = QHBoxLayout()
+        apply_button = QPushButton("Apply", dialog)
+        apply_button.clicked.connect(lambda: self.apply_downscale_factor(dialog))
+        button_layout.addWidget(apply_button)
+
+        close_button = QPushButton("Close", dialog)
+        close_button.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_button)
+
+        layout.addLayout(button_layout)
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def apply_downscale_factor(self, dialog):
+        """Apply the new downscale factor and update images."""
+        new_scale = self.downscale_spinbox.value()
+        if new_scale <= 0:
+            QMessageBox.warning(self, "Invalid Scale Factor", "Scale factor must be greater than 0.")
+            return
+        self.scale_factor = new_scale
+        self.statusBar().showMessage(f"Downscale factor set to {self.scale_factor}. Reprocessing images...")
+
+        if self.channels:
+            self.recompute_downscaled_channels()
+            self.display_current_z_slice()
+            self.statusBar().showMessage(f"Downscale factor updated to {self.scale_factor}. Images reprocessed.")
+        else:
+            self.statusBar().showMessage("Downscale factor updated. Load an image to apply the new scale.")
+
+        dialog.accept()
+
+    def recompute_downscaled_channels(self):
+        """Recompute the downscaled channels based on the current scale factor."""
+        self.downscaled_channels = {}
+        for c in self.channels.keys():
+            channel_data = self.channels[c]  # Shape: (Z, Y, X)
+            downscaled_data = []
+            for z in range(self.total_z_slices):
+                image = channel_data[z]
+                height, width = image.shape
+                new_height = max(1, int(height * self.scale_factor))
+                new_width = max(1, int(width * self.scale_factor))
+                downscaled_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                downscaled_data.append(downscaled_image)
+            self.downscaled_channels[c] = np.array(downscaled_data)
 
     def load_annotations(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Load Annotations", "", "JSON Files (*.json);;All Files (*)")
@@ -539,6 +625,8 @@ class DuctSystemGUI(QMainWindow):
             # Draw branch points
             for name, point in branch_points_to_draw.items():
                 point_qt = QPointF(point['location'].x(), point['location'].y())
+                # Adjust point_qt to displayed coordinates
+                display_point = QPointF(point_qt.x() * self.scale_factor, point_qt.y() * self.scale_factor)
                 delta_z = point['z'] - self.current_z
                 max_delta_z = 5  # Adjust as needed
 
@@ -563,9 +651,10 @@ class DuctSystemGUI(QMainWindow):
 
                 color = QColor.fromHsv(hue, 255, 255)  # Full saturation and value
 
+                adjusted_point_size = self.get_adjusted_point_size()
                 point_item = self.scene.addEllipse(
-                    point_qt.x() - 5, point_qt.y() - 5,
-                    self.annotation_point_size, self.annotation_point_size,
+                    display_point.x() - (adjusted_point_size / 2), display_point.y() - (adjusted_point_size / 2),
+                    adjusted_point_size, adjusted_point_size,
                     QPen(color), QBrush(color)
                 )
                 point_item.setOpacity(opacity)
@@ -594,10 +683,13 @@ class DuctSystemGUI(QMainWindow):
                     for annotation in segment.annotations:
                         if annotation.get('z', self.current_z) == self.current_z:
                             point = QPointF(annotation['x'], annotation['y'])
+                            # Adjust point to displayed coordinates
+                            display_point = QPointF(point.x() * self.scale_factor, point.y() * self.scale_factor)
                             annotation_color = self.annotation_colors.get(annotation['name'], Qt.red)
+                            adjusted_point_size = self.get_adjusted_point_size()
                             annotation_item = self.scene.addEllipse(
-                                point.x() - 5, point.y() - 5,
-                                self.annotation_point_size, self.annotation_point_size,
+                                display_point.x() - (adjusted_point_size / 2), display_point.y() - (adjusted_point_size / 2),
+                                adjusted_point_size, adjusted_point_size,
                                 QPen(annotation_color), QBrush(annotation_color)
                             )
                             annotation_item.setOpacity(opacity)
@@ -714,11 +806,16 @@ class DuctSystemGUI(QMainWindow):
         if z is None:
             z = self.current_z
 
-        self.active_duct_system.add_branch_point(bp_name, point, z, is_endpoint=is_endpoint)
+        # Map point to original image coordinates
+        original_point = QPointF(point.x() / self.scale_factor, point.y() / self.scale_factor)
+
+        self.active_duct_system.add_branch_point(bp_name, original_point, z, is_endpoint=is_endpoint)
         color = Qt.red if is_endpoint else Qt.green
+
+        adjusted_point_size = self.get_adjusted_point_size()
         point_item = self.scene.addEllipse(
-            point.x() - (self.annotation_point_size / 2), point.y() - (self.annotation_point_size / 2),
-            self.annotation_point_size, self.annotation_point_size,
+            point.x() - (adjusted_point_size / 2), point.y() - (adjusted_point_size / 2),
+            adjusted_point_size, adjusted_point_size,
             QPen(color), QBrush(color)
         )
 
@@ -738,28 +835,38 @@ class DuctSystemGUI(QMainWindow):
     def add_intermediate_point(self, point, color=Qt.gray):
         # Convert the last point to QPointF and ensure it's a copy
         if self.intermediate_points:
-            last_point = self.ensure_qpointf(self.intermediate_points[-1])
+            last_point_original = self.ensure_qpointf(self.intermediate_points[-1])
+            last_point_display = QPointF(last_point_original.x() * self.scale_factor,
+                                         last_point_original.y() * self.scale_factor)
         else:
-            last_point = self.active_duct_system.get_branch_point(self.current_point_name)["location"]
+            last_point_original = self.active_duct_system.get_branch_point(self.current_point_name)["location"]
+            last_point_display = QPointF(last_point_original.x() * self.scale_factor,
+                                         last_point_original.y() * self.scale_factor)
 
         # Ensure the current point is a QPointF and store a copy as tuple
-        point = self.ensure_qpointf(point)
+        display_point = self.ensure_qpointf(point)
+        original_point = QPointF(display_point.x() / self.scale_factor, display_point.y() / self.scale_factor)
+
+        adjusted_line_thickness = 2 * self.scale_factor
+        # Draw line between last_point_display and display_point
         line = self.scene.addLine(
-            last_point.x(), last_point.y(),
-            point.x(), point.y(),
-            QPen(color, 2)
+            last_point_display.x(), last_point_display.y(),
+            display_point.x(), display_point.y(),
+            QPen(color, adjusted_line_thickness)
         )
         self.dotted_lines.append(line)
 
-        # Store the point as a tuple (x, y)
-        self.intermediate_points.append((point.x(), point.y()))
+        # Store the point as a tuple (x, y) in original image coordinates
+        self.intermediate_points.append((original_point.x(), original_point.y()))
 
-        self.statusBar().showMessage(f"Intermediate point added at {point}.")
+        self.statusBar().showMessage(f"Intermediate point added at {original_point}.")
 
     def finalize_segment(self, end_point):
         bp_name = f"bp{self.next_bp_name}"
         z = self.current_z
-        self.active_duct_system.add_branch_point(bp_name, end_point, z)
+        # Map end_point to original coordinates
+        original_end_point = QPointF(end_point.x() / self.scale_factor, end_point.y() / self.scale_factor)
+        self.active_duct_system.add_branch_point(bp_name, original_end_point, z)
 
         segment_name = f"{self.current_point_name}to{bp_name}"
         self.active_duct_system.add_segment(
@@ -770,6 +877,7 @@ class DuctSystemGUI(QMainWindow):
             self.active_duct_system.get_branch_point(self.current_point_name)["z"], z
         )
 
+        # Draw the segment
         self.draw_segment_with_intermediates(
             self.current_point_name, bp_name,
             list(self.intermediate_points),
@@ -778,9 +886,11 @@ class DuctSystemGUI(QMainWindow):
         )
 
         color = Qt.red if self.active_duct_system.get_branch_point(bp_name).get('is_endpoint', False) else Qt.green
+
+        adjusted_point_size = self.get_adjusted_point_size()
         point_item = self.scene.addEllipse(
-            end_point.x() - 5, end_point.y() - 5,
-            self.annotation_point_size, self.annotation_point_size,
+            end_point.x() - (adjusted_point_size / 2), end_point.y() - (adjusted_point_size / 2),
+            adjusted_point_size, adjusted_point_size,
             QPen(color), QBrush(color)
         )
         point_item.setOpacity(1.0)
@@ -799,19 +909,23 @@ class DuctSystemGUI(QMainWindow):
         """Update the temporary line for the current segment."""
         self.clear_temp_line()
 
-        start_point = self.active_duct_system.get_branch_point(self.current_point_name)["location"]
+        start_point_original = self.active_duct_system.get_branch_point(self.current_point_name)["location"]
+        start_point_display = QPointF(start_point_original.x() * self.scale_factor, start_point_original.y() * self.scale_factor)
 
         # Draw temporary line from the last point (or start) to the current mouse position
         if self.intermediate_points:
             last_intermediate = self.intermediate_points[-1]
-            last_point = QPointF(last_intermediate[0], last_intermediate[1])
+            last_point_original = QPointF(last_intermediate[0], last_intermediate[1])
+            last_point_display = QPointF(last_point_original.x() * self.scale_factor,
+                                         last_point_original.y() * self.scale_factor)
         else:
-            last_point = start_point
+            last_point_display = start_point_display
 
+        adjusted_line_thickness = 2 * self.scale_factor
         self.temp_line = self.scene.addLine(
-            last_point.x(), last_point.y(),
+            last_point_display.x(), last_point_display.y(),
             point.x(), point.y(),
-            QPen(Qt.gray, 2, Qt.DashLine)
+            QPen(Qt.gray, adjusted_line_thickness, Qt.DashLine)
         )
 
     def clear_temp_line(self):
@@ -833,7 +947,10 @@ class DuctSystemGUI(QMainWindow):
     def select_active_point(self, point):
         for duct_system in self.duct_systems:
             for bp_name, bp in duct_system.branch_points.items():
-                if self.is_point_near(bp["location"], point):
+                bp_location = bp["location"]
+                # Map bp_location to displayed coordinates
+                bp_display_location = QPointF(bp_location.x() * self.scale_factor, bp_location.y() * self.scale_factor)
+                if self.is_point_near(bp_display_location, point):
                     self.active_duct_system = duct_system
                     self.load_annotations_for_current_z()
                     self.set_active_point(bp_name)
@@ -883,19 +1000,24 @@ class DuctSystemGUI(QMainWindow):
                 color = Qt.red
 
         # If different_style is True, adjust pen style or color
+        adjusted_line_thickness = self.get_adjusted_line_thickness()
         if different_style:
-            pen = QPen(Qt.gray, self.annotation_line_thickness, Qt.DashLine)
+            pen = QPen(Qt.gray, adjusted_line_thickness, Qt.DashLine)
         else:
-            pen = QPen(color, self.annotation_line_thickness)
+            pen = QPen(color, adjusted_line_thickness)
 
         # Draw lines between consecutive points
         for i in range(len(full_points) - 1):
             p1 = full_points[i]
             p2 = full_points[i + 1]
 
+            # Map points to display coordinates
+            p1_display = QPointF(p1.x() * self.scale_factor, p1.y() * self.scale_factor)
+            p2_display = QPointF(p2.x() * self.scale_factor, p2.y() * self.scale_factor)
+
             line = self.scene.addLine(
-                p1.x(), p1.y(),
-                p2.x(), p2.y(),
+                p1_display.x(), p1_display.y(),
+                p2_display.x(), p2_display.y(),
                 pen
             )
             line.setOpacity(opacity)
@@ -921,8 +1043,9 @@ class DuctSystemGUI(QMainWindow):
                     color = Qt.red
                 else:
                     color = Qt.blue
+                adjusted_line_thickness = self.get_adjusted_line_thickness()
                 for segment_item in self.segment_items[self.active_duct_system][self.active_segment_name]:
-                    segment_item.setPen(QPen(color, self.annotation_line_thickness))
+                    segment_item.setPen(QPen(color, adjusted_line_thickness))
 
         # If segment_name is None, just clear the active segment without setting a new one
         if segment_name is None:
@@ -932,8 +1055,9 @@ class DuctSystemGUI(QMainWindow):
         self.active_segment_name = segment_name
 
         # Highlight the new active segment in yellow
+        adjusted_line_thickness = self.get_adjusted_line_thickness()
         for segment_item in self.segment_items[self.active_duct_system][self.active_segment_name]:
-            segment_item.setPen(QPen(Qt.yellow, self.annotation_line_thickness))
+            segment_item.setPen(QPen(Qt.yellow, adjusted_line_thickness))
 
         self.statusBar().showMessage(f"Active segment set to '{segment_name}'.")
 
@@ -1170,18 +1294,22 @@ class DuctSystemGUI(QMainWindow):
 
     def add_annotation_point(self, point):
         if self.annotation_mode and self.active_segment_name:
-            annotation = {'name': self.annotation_mode, 'x': point.x(), 'y': point.y(), 'z': self.current_z}
+            # Map point to original image coordinates
+            original_point = QPointF(point.x() / self.scale_factor, point.y() / self.scale_factor)
+            annotation = {'name': self.annotation_mode, 'x': original_point.x(), 'y': original_point.y(), 'z': self.current_z}
             segment = self.active_duct_system.get_segment(self.active_segment_name)
             if segment:
                 segment.add_annotation(annotation)
                 # Use the color and size specific to the annotation type
                 color = self.annotation_colors.get(self.annotation_mode, Qt.red)
-                pen = QPen(color, self.annotation_line_thickness)
+                pen = QPen(color, self.get_adjusted_line_thickness())
                 brush = QBrush(color)
+                # Draw the annotation at the displayed coordinates
+                adjusted_point_size = self.get_adjusted_point_size()
                 annotation_item = self.scene.addEllipse(
-                    point.x() - (self.annotation_point_size / 2),
-                    point.y() - (self.annotation_point_size / 2),
-                    self.annotation_point_size, self.annotation_point_size,
+                    point.x() - (adjusted_point_size / 2),
+                    point.y() - (adjusted_point_size / 2),
+                    adjusted_point_size, adjusted_point_size,
                     pen, brush
                 )
                 annotation_item.setOpacity(1.0)
@@ -1278,16 +1406,21 @@ class DuctSystemGUI(QMainWindow):
             for segment_name, segment in duct_system.segments.items():
                 for annotation in segment.annotations:
                     annotation_point = QPointF(annotation['x'], annotation['y'])
-                    items_at_point = self.scene.items(annotation_point)
+                    # Adjust point to displayed coordinates
+                    display_point = QPointF(annotation_point.x() * self.scale_factor,
+                                            annotation_point.y() * self.scale_factor)
+                    items_at_point = self.scene.items(display_point)
                     for item in items_at_point:
                         if isinstance(item, QGraphicsEllipseItem):
+                            adjusted_point_size = self.get_adjusted_point_size()
+                            adjusted_line_thickness = self.get_adjusted_line_thickness()
                             item.setRect(
-                                annotation_point.x() - (self.annotation_point_size / 2),
-                                annotation_point.y() - (self.annotation_point_size / 2),
-                                self.annotation_point_size, self.annotation_point_size
+                                display_point.x() - (adjusted_point_size / 2),
+                                display_point.y() - (adjusted_point_size / 2),
+                                adjusted_point_size, adjusted_point_size
                             )
                             item.setPen(QPen(self.annotation_colors.get(annotation['name'], Qt.red),
-                                             self.annotation_line_thickness))
+                                             adjusted_line_thickness))
                             item.setBrush(QBrush(self.annotation_colors.get(annotation['name'], Qt.red)))
 
         # Update existing segment lines' appearance
@@ -1302,8 +1435,9 @@ class DuctSystemGUI(QMainWindow):
                         color = Qt.red
                     else:
                         color = Qt.blue
+                    adjusted_line_thickness = self.get_adjusted_line_thickness()
                     for line_item in segment_lines:
-                        line_item.setPen(QPen(color, self.annotation_line_thickness))
+                        line_item.setPen(QPen(color, adjusted_line_thickness))
 
         self.statusBar().showMessage("Annotation properties updated.")
 
@@ -1316,8 +1450,9 @@ class DuctSystemGUI(QMainWindow):
             # Update the visual representation of all existing segments
             for duct_system in self.duct_systems:
                 for segment_name, segment_lines in self.segment_items.get(duct_system, {}).items():
+                    adjusted_line_thickness = self.get_adjusted_line_thickness()
                     for line_item in segment_lines:
-                        line_item.setPen(QPen(color, self.annotation_line_thickness))
+                        line_item.setPen(QPen(color, adjusted_line_thickness))
 
             self.statusBar().showMessage("All segment line colors updated.")
 
