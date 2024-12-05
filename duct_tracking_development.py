@@ -3,10 +3,10 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
     QVBoxLayout, QPushButton, QWidget, QFileDialog, QAction, QHBoxLayout,
     QInputDialog, QLineEdit, QGraphicsEllipseItem, QTextEdit, QDialog, QLabel,
-    QSlider, QColorDialog, QComboBox, QMessageBox, QDoubleSpinBox
+    QSlider, QColorDialog, QComboBox, QMessageBox, QDoubleSpinBox, QGraphicsPolygonItem, QListWidget, QListWidgetItem
 )
 from PyQt5.QtGui import (
-    QPixmap, QImage, QPen, QBrush, QCursor, QColor
+    QPixmap, QImage, QPen, QBrush, QCursor, QColor, QPolygonF
 )
 from PyQt5.QtCore import Qt, QPointF, QPoint, QTimer, QEvent
 import json
@@ -18,15 +18,6 @@ from imagecodecs import zstd_decode
 class DuctSystemGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-
-        # Initialize the default annotation names first
-        self.default_annotation_names = [
-            "CFP basal", "GFP basal", "YFP basal", "RFP basal",
-            "CFP luminal", "GFP luminal", "YFP luminal", "RFP luminal"
-        ]  # Default annotation names
-
-        # Initialize annotation colors
-        self.annotation_colors = self.generate_distinct_colors(len(self.default_annotation_names))
 
         self.annotation_point_size = 10  # Default point size
         self.annotation_line_thickness = 2  # Default line thickness
@@ -49,8 +40,17 @@ class DuctSystemGUI(QMainWindow):
         self.panning_mode = False  # Mode for panning the view
         self.pan_start = QPoint()  # Starting position for panning
         self.custom_annotation_name = None  # Name for custom annotation mode
+        self.annotation_colors = {}
 
-        # New features flags
+        self.segment_annotations = {}  # Dictionary to store annotation names and their keybindings
+        self.active_segment_annotation = None  # Currently active annotation
+        self.config_file = "config.json"  # Config file to save/load settings
+        self.load_config()  # Load settings at startup
+
+        self.outlines_data = []
+        self.outline_items = []
+        self.outline_color = Qt.red  # Default outline color
+
         self.continuous_draw_mode = False  # Flag for continuous drawing
         self.drawing_continuous = False  # Flag to track continuous drawing
         self.new_origin_mode = False  # Flag for new origin mode
@@ -91,16 +91,28 @@ class DuctSystemGUI(QMainWindow):
         save_annotations_action.triggered.connect(self.save_annotations)
         file_menu.addAction(save_annotations_action)
 
+        load_outlines_action = QAction('Load Outlines', self)
+        load_outlines_action.triggered.connect(self.load_outlines)
+        file_menu.addAction(load_outlines_action)
+
         # Edit menu
         edit_menu = menubar.addMenu('Edit')
 
         edit_annotations_action = QAction('Edit Annotation Names', self)
-        edit_annotations_action.triggered.connect(self.edit_annotation_names)
+        edit_annotations_action.triggered.connect(self.configure_segment_annotations)
         edit_menu.addAction(edit_annotations_action)
+
+        change_outline_color_action = QAction('Change Outline Color', self)
+        change_outline_color_action.triggered.connect(self.change_outline_color)
+        edit_menu.addAction(change_outline_color_action)
 
         edit_properties_action = QAction('Edit Annotation Properties', self)
         edit_properties_action.triggered.connect(self.show_edit_properties_dialog)
         edit_menu.addAction(edit_properties_action)
+
+        configure_segment_annotations_action = QAction('Configure Segment Annotations', self)
+        configure_segment_annotations_action.triggered.connect(self.configure_segment_annotations)
+        edit_menu.addAction(configure_segment_annotations_action)
 
         delete_selected_bp_action = QAction('Delete Selected Branch Point And All Children', self)
         delete_selected_bp_action.triggered.connect(self.delete_selected_branch_point_and_descendants)
@@ -109,10 +121,6 @@ class DuctSystemGUI(QMainWindow):
         edit_line_color_action = QAction('Edit Line Colors', self)
         edit_line_color_action.triggered.connect(self.edit_line_colors)
         edit_menu.addAction(edit_line_color_action)
-
-        annotate_segment_action = QAction('Annotate Segment', self)
-        annotate_segment_action.triggered.connect(self.annotate_active_segment)
-        edit_menu.addAction(annotate_segment_action)
 
         # Modes menu
         modes_menu = menubar.addMenu('Modes')
@@ -166,19 +174,6 @@ class DuctSystemGUI(QMainWindow):
 
         self.z_label = QLabel("Z Slice: 0", self)
 
-        self.annotation_buttons = []
-        for name in self.default_annotation_names:
-            button = QPushButton(name, self)
-            button.clicked.connect(lambda _, n=name: self.activate_annotation_mode(n))
-            button.setEnabled(False)  # Initially disabled
-            self.annotation_buttons.append(button)
-
-        # Add a "Specify Name" button
-        specify_name_button = QPushButton("Specify Name", self)
-        specify_name_button.clicked.connect(self.activate_specify_name_mode)
-        specify_name_button.setEnabled(False)  # Initially disabled
-        self.annotation_buttons.append(specify_name_button)
-
         # Layout setup
         side_layout = QVBoxLayout()
         side_layout.addWidget(self.segment_mode_button)
@@ -187,8 +182,7 @@ class DuctSystemGUI(QMainWindow):
         side_layout.addWidget(self.z_prev_button)
         side_layout.addWidget(self.z_next_button)
         side_layout.addWidget(self.z_label)
-        for button in self.annotation_buttons:
-            side_layout.addWidget(button)
+
         side_layout.addStretch()
 
         main_layout = QHBoxLayout()
@@ -227,8 +221,7 @@ class DuctSystemGUI(QMainWindow):
                         name: {
                             'x': point['location'].x(),
                             'y': point['location'].y(),
-                            'z': point['z'],
-                            'is_endpoint': point.get('is_endpoint', False)
+                            'z': point['z']
                         }
                         for name, point in duct_system.branch_points.items()
                     },
@@ -252,14 +245,166 @@ class DuctSystemGUI(QMainWindow):
 
             self.statusBar().showMessage("Annotations saved successfully.")
 
-    def generate_distinct_colors(self, num_colors):
-        """Generate a dictionary of distinct colors for annotations."""
-        colors = []
-        for i in range(num_colors):
-            hue = i / num_colors
-            color = QColor.fromHsv(int(hue * 360), 255, 255)
-            colors.append(color)
-        return {name: colors[i] for i, name in enumerate(self.default_annotation_names)}
+    def configure_segment_annotations(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Configure Segment Annotations")
+        dialog.resize(400, 300)
+
+        layout = QVBoxLayout()
+
+        # List of annotations
+        self.annotations_list_widget = QListWidget()
+        for annotation_name in self.segment_annotations.keys():
+            item = QListWidgetItem(annotation_name)
+            keybinding = self.segment_annotations[annotation_name]
+            item.setData(Qt.UserRole, keybinding)
+            item.setText(f"{annotation_name} (Key: {keybinding})")
+            self.annotations_list_widget.addItem(item)
+        layout.addWidget(self.annotations_list_widget)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        add_button = QPushButton("Add", dialog)
+        add_button.clicked.connect(self.add_segment_annotation)
+        button_layout.addWidget(add_button)
+
+        edit_button = QPushButton("Edit", dialog)
+        edit_button.clicked.connect(self.edit_segment_annotation)
+        button_layout.addWidget(edit_button)
+
+        remove_button = QPushButton("Remove", dialog)
+        remove_button.clicked.connect(self.remove_segment_annotation)
+        button_layout.addWidget(remove_button)
+
+        layout.addLayout(button_layout)
+
+        # Close button
+        close_button = QPushButton("Close", dialog)
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+
+        dialog.setLayout(layout)
+        dialog.show()
+        self.annotation_config_dialog = dialog
+
+    def add_segment_annotation(self):
+        annotation_name, ok = QInputDialog.getText(self, "Add Annotation", "Enter annotation name:")
+        if ok and annotation_name:
+            keybinding, ok = QInputDialog.getText(self, "Set Keybinding", "Press a key for this annotation:")
+            if ok and keybinding:
+                key = keybinding.upper()
+                # Reserved keys to avoid conflicts
+                reserved_keys = {'O', 'S', 'M', 'N', 'Z', 'X', 'P', 'Delete', 'Backspace', 'Escape'}
+                if key in self.segment_annotations.values() or key in reserved_keys:
+                    QMessageBox.warning(self, "Keybinding Error", f"Key '{key}' is already assigned or reserved.")
+                    return
+
+                # Now ask the user to select a color
+                color = QColorDialog.getColor()
+                if color.isValid():
+                    self.annotation_colors[annotation_name] = color
+                else:
+                    # Use default color if none selected
+                    self.annotation_colors[annotation_name] = Qt.red
+                self.segment_annotations[annotation_name] = key
+                self.save_config()
+                self.configure_segment_annotations()  # Refresh the dialog
+                self.load_annotations_for_current_z()
+                QApplication.processEvents()  # Force GUI update
+            else:
+                QMessageBox.warning(self, "Input Error", "Invalid keybinding.")
+        else:
+            QMessageBox.warning(self, "Input Error", "Annotation name cannot be empty.")
+
+    def edit_segment_annotation(self):
+        selected_items = self.annotations_list_widget.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Selection Error", "No annotation selected.")
+            return
+        item = selected_items[0]
+        old_name = item.text().split(" (Key:")[0]
+        old_key = self.segment_annotations[old_name]
+
+        # Edit name
+        new_name, ok = QInputDialog.getText(self, "Edit Annotation", "Enter new annotation name:", text=old_name)
+        if ok and new_name:
+            # Edit keybinding
+            new_keybinding, ok = QInputDialog.getText(self, "Set Keybinding", "Press a key for this annotation:",
+                                                      text=old_key)
+            if ok and new_keybinding:
+                new_key = new_keybinding.upper()
+                reserved_keys = {'O', 'S', 'M', 'N', 'Z', 'X', 'P', 'Delete', 'Backspace', 'Escape'}
+                if new_key in self.segment_annotations.values() and new_key != old_key or new_key in reserved_keys:
+                    QMessageBox.warning(self, "Keybinding Error", f"Key '{new_key}' is already assigned or reserved.")
+                    return
+                # Ask if the user wants to change the color
+                reply = QMessageBox.question(
+                    self, 'Change Color?',
+                    'Do you want to change the annotation color?',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    color = QColorDialog.getColor()
+                    if color.isValid():
+                        self.annotation_colors[new_name] = color
+                    else:
+                        self.annotation_colors[new_name] = self.annotation_colors.get(old_name, Qt.red)
+                else:
+                    # Keep the old color
+                    self.annotation_colors[new_name] = self.annotation_colors.get(old_name, Qt.red)
+
+                # Remove the old color if the name changed
+                if old_name != new_name and old_name in self.annotation_colors:
+                    del self.annotation_colors[old_name]
+
+                # Update the segment annotation
+                del self.segment_annotations[old_name]
+                self.segment_annotations[new_name] = new_key
+
+                self.save_config()
+                self.configure_segment_annotations()  # Refresh the dialog
+                self.load_annotations_for_current_z()
+                QApplication.processEvents()  # Force GUI update
+            else:
+                QMessageBox.warning(self, "Input Error", "Invalid keybinding.")
+        else:
+            QMessageBox.warning(self, "Input Error", "Annotation name cannot be empty.")
+
+    def remove_segment_annotation(self):
+        selected_items = self.annotations_list_widget.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Selection Error", "No annotation selected.")
+            return
+        item = selected_items[0]
+        annotation_name = item.text().split(" (Key:")[0]
+        del self.segment_annotations[annotation_name]
+        if annotation_name in self.annotation_colors:
+            del self.annotation_colors[annotation_name]
+        self.save_config()
+        self.configure_segment_annotations()  # Refresh the dialog
+        self.load_annotations_for_current_z()  # Refresh the display
+        QApplication.processEvents()  # Force GUI update
+
+    def save_config(self):
+        config_data = {
+            'segment_annotations': self.segment_annotations,
+            'annotation_colors': {name: color.name() for name, color in self.annotation_colors.items()}
+        }
+        with open(self.config_file, 'w') as f:
+            json.dump(config_data, f)
+
+    def load_config(self):
+        try:
+            with open(self.config_file, 'r') as f:
+                config_data = json.load(f)
+                self.segment_annotations = config_data.get('segment_annotations', {})
+                self.annotation_colors = {}
+                annotation_colors = config_data.get('annotation_colors', {})
+                for name, color_name in annotation_colors.items():
+                    self.annotation_colors[name] = QColor(color_name)
+        except FileNotFoundError:
+            # No config file exists yet
+            pass
 
     def load_tiff(self):
         options = QFileDialog.Options()
@@ -334,8 +479,7 @@ class DuctSystemGUI(QMainWindow):
                 self.current_z = 0
                 self.display_current_z_slice()
                 # Enable annotation buttons now that image is loaded
-                for button in self.annotation_buttons:
-                    button.setEnabled(True)
+
             except Exception as e:
                 QMessageBox.warning(self, "Load Image", f"Failed to load image: {e}")
 
@@ -399,6 +543,7 @@ class DuctSystemGUI(QMainWindow):
             # Update the Z slice label and annotations
             self.z_label.setText(f"Z Slice: {self.current_z + 1}/{self.total_z_slices}")
             self.load_annotations_for_current_z()
+            self.display_outlines()  # Add this line
         else:
             QMessageBox.warning(self, "Display Image", "No channels loaded.")
 
@@ -495,9 +640,7 @@ class DuctSystemGUI(QMainWindow):
                     for name, point in system_data.get('branch_points', {}).items():
                         point_qt = QPointF(point['x'], point['y'])
                         z = point.get('z', 0)
-                        # Set `is_endpoint` to False if it's missing in the saved annotations
-                        is_endpoint = point.get('is_endpoint', False)
-                        duct_system.add_branch_point(name, point_qt, z, is_endpoint=is_endpoint)
+                        duct_system.add_branch_point(name, point_qt, z)
 
                     # Load segments
                     for segment_name, segment in system_data.get('segments', {}).items():
@@ -695,9 +838,11 @@ class DuctSystemGUI(QMainWindow):
                             annotation_item.setOpacity(opacity)
 
     def clear_annotations(self):
-        # Remove all items except the image
+        # Remove all items except the image and the outline items
         for item in self.scene.items():
             if isinstance(item, QGraphicsPixmapItem):
+                continue
+            if item in self.outline_items:
                 continue
             self.scene.removeItem(item)
         self.point_items.clear()
@@ -798,7 +943,7 @@ class DuctSystemGUI(QMainWindow):
                         self.set_active_segment(segment_name)
                         return
 
-    def add_branch_point(self, point, bp_name=None, z=None, is_endpoint=False):
+    def add_branch_point(self, point, bp_name=None, z=None):
         if bp_name is None:
             bp_name = f"bp{self.next_bp_name}"
             self.next_bp_name += 1
@@ -809,8 +954,8 @@ class DuctSystemGUI(QMainWindow):
         # Map point to original image coordinates
         original_point = QPointF(point.x() / self.scale_factor, point.y() / self.scale_factor)
 
-        self.active_duct_system.add_branch_point(bp_name, original_point, z, is_endpoint=is_endpoint)
-        color = Qt.red if is_endpoint else Qt.green
+        self.active_duct_system.add_branch_point(bp_name, original_point, z)
+        color = Qt.green
 
         adjusted_point_size = self.get_adjusted_point_size()
         point_item = self.scene.addEllipse(
@@ -877,6 +1022,14 @@ class DuctSystemGUI(QMainWindow):
             self.active_duct_system.get_branch_point(self.current_point_name)["z"], z
         )
 
+        # Assign active annotation
+        if self.active_segment_annotation:
+            self.active_duct_system.segments[segment_name].add_property('Annotation', self.active_segment_annotation)
+            self.statusBar().showMessage(
+                f"Segment '{segment_name}' created with annotation '{self.active_segment_annotation}'.")
+        else:
+            self.statusBar().showMessage(f"Segment '{segment_name}' created on Z slice {z}.")
+
         # Draw the segment
         self.draw_segment_with_intermediates(
             self.current_point_name, bp_name,
@@ -885,7 +1038,7 @@ class DuctSystemGUI(QMainWindow):
             duct_system=self.active_duct_system  # Pass the active duct system
         )
 
-        color = Qt.red if self.active_duct_system.get_branch_point(bp_name).get('is_endpoint', False) else Qt.green
+        color = Qt.green
 
         adjusted_point_size = self.get_adjusted_point_size()
         point_item = self.scene.addEllipse(
@@ -960,7 +1113,7 @@ class DuctSystemGUI(QMainWindow):
         if self.current_point_name and self.current_point_name in self.point_items.get(self.active_duct_system, {}):
             old_active_item = self.point_items[self.active_duct_system][self.current_point_name]
             bp = self.active_duct_system.get_branch_point(self.current_point_name)
-            color = Qt.red if bp.get('is_endpoint', False) else Qt.green
+            color = Qt.green
             old_active_item.setBrush(QBrush(color))
 
         if bp_name in self.point_items.get(self.active_duct_system, {}):
@@ -990,14 +1143,14 @@ class DuctSystemGUI(QMainWindow):
         # Use the default line color
         color = self.default_line_color if hasattr(self, 'default_line_color') else Qt.blue
 
-        # Adjust color based on segment properties (e.g., Positive/Negative)
+        # Adjust color based on segment annotation
         segment = duct_system.get_segment(f"{start_bp_name}to{end_bp_name}")
         if segment:
-            status = segment.get_property("Status")
-            if status == "Positive":
-                color = Qt.green
-            elif status == "Negative":
-                color = Qt.red
+            annotation = segment.get_property('Annotation')
+            if annotation:
+                # Generate a color based on the annotation name
+                color = QColor(abs(hash(annotation)) % 256, abs(hash(annotation + 'g')) % 256,
+                               abs(hash(annotation + 'b')) % 256)
 
         # If different_style is True, adjust pen style or color
         adjusted_line_thickness = self.get_adjusted_line_thickness()
@@ -1064,25 +1217,98 @@ class DuctSystemGUI(QMainWindow):
     def is_point_near(self, bp_location, click_point, threshold=10):
         return (bp_location - click_point).manhattanLength() < threshold
 
+    def load_outlines(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Load Outlines", "", "JSON Files (*.geojson);;All Files (*)",
+            options=options
+        )
+        if file_name:
+            # Ask the user to select a color for the outlines
+            color = QColorDialog.getColor()
+            if color.isValid():
+                self.outline_color = color
+            else:
+                self.outline_color = Qt.red  # Default to red if no color selected
+
+            # Now open and parse the JSON file
+            try:
+                with open(file_name, 'r') as f:
+                    data = json.load(f)
+                    # Check that data has the expected structure
+                    if 'features' in data:
+                        features = data['features']
+                        # Clear existing outlines data
+                        self.outlines_data.clear()
+                        # Iterate over features
+                        for feature in features:
+                            geometry = feature.get('geometry')
+                            if geometry:
+                                geom_type = geometry.get('type')
+                                coordinates = geometry.get('coordinates', [])
+                                if geom_type == 'Polygon':
+                                    # Iterate over all rings in the Polygon
+                                    for ring in coordinates:
+                                        points = ring
+                                        self.outlines_data.append({'points': points})
+                                elif geom_type == 'MultiPolygon':
+                                    # Iterate over all Polygons and their rings
+                                    for polygon in coordinates:
+                                        for ring in polygon:
+                                            points = ring
+                                            self.outlines_data.append({'points': points})
+                        # Now display the outlines
+                        self.display_outlines()
+                    else:
+                        QMessageBox.warning(self, "Load Outlines", "Invalid JSON format: 'features' key not found.")
+            except Exception as e:
+                QMessageBox.warning(self, "Load Outlines", f"Failed to load outlines: {e}")
+
+    def display_outlines(self):
+        # Remove existing outline items from the scene
+        for item in self.outline_items:
+            self.scene.removeItem(item)
+        self.outline_items.clear()
+
+        # Iterate over the outlines data
+        for outline in self.outlines_data:
+            points = outline['points']
+            # Scale the points
+            polygon = QPolygonF([QPointF(x * self.scale_factor, y * self.scale_factor) for x, y in points])
+            # Create QGraphicsPolygonItem
+            polygon_item = QGraphicsPolygonItem(polygon)
+            # Set pen color
+            pen = QPen(self.outline_color, 2)  # Adjust line width as needed
+            polygon_item.setPen(pen)
+            # Add to scene
+            self.scene.addItem(polygon_item)
+            # Store the item
+            self.outline_items.append(polygon_item)
+
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_O:
-            self.clear_temp_line()  # Clear the temp line when entering selection mode
-            self.clear_dotted_lines()  # Clear all persistent dotted lines when entering selection mode
-            self.clear_intermediate_points()  # Clear all intermediate points when entering selection mode
-            self.selection_mode = True  # Enter selection mode
-            self.segment_mode = False  # Exit segment mode
-            self.panning_mode = False  # Exit panning mode
-
-            # Reset annotation mode when switching modes
-            self.annotation_mode = None
-            self.custom_annotation_name = None
-
-            self.update_mode_display()
-            self.statusBar().showMessage("Selection mode: Click on a branch point to select it as the active point.")
+        key = event.text().upper()
+        if key in self.segment_annotations.values():
+            # Toggle the annotation
+            annotation_name = [name for name, k in self.segment_annotations.items() if k == key][0]
+            if self.active_segment_annotation == annotation_name:
+                self.active_segment_annotation = None
+                self.statusBar().showMessage(f"Annotation '{annotation_name}' deactivated.")
+            else:
+                self.active_segment_annotation = annotation_name
+                self.statusBar().showMessage(f"Annotation '{annotation_name}' activated.")
         elif event.key() == Qt.Key_S:
             self.toggle_segment_mode()
         elif event.key() == Qt.Key_M:
             self.toggle_panning_mode()
+        elif event.key() == Qt.Key_O:
+            self.clear_temp_line()
+            self.clear_dotted_lines()
+            self.clear_intermediate_points()
+            self.selection_mode = True
+            self.segment_mode = False
+            self.panning_mode = False
+            self.update_mode_display()
+            self.statusBar().showMessage("Selection mode: Click on a branch point to select it as the active point.")
         elif event.key() == Qt.Key_Escape:
             if self.panning_mode:
                 self.toggle_panning_mode()
@@ -1239,9 +1465,6 @@ class DuctSystemGUI(QMainWindow):
         self.update_mode_display()
         self.statusBar().showMessage("Segment mode activated." if self.segment_mode else "Segment mode deactivated.")
 
-        for button in self.annotation_buttons:
-            button.setEnabled(self.segment_mode)
-
         # Update cursor based on mode
         self.view.setCursor(QCursor(Qt.CrossCursor) if self.segment_mode else QCursor(Qt.ArrowCursor))
 
@@ -1296,11 +1519,12 @@ class DuctSystemGUI(QMainWindow):
         if self.annotation_mode and self.active_segment_name:
             # Map point to original image coordinates
             original_point = QPointF(point.x() / self.scale_factor, point.y() / self.scale_factor)
-            annotation = {'name': self.annotation_mode, 'x': original_point.x(), 'y': original_point.y(), 'z': self.current_z}
+            annotation = {'name': self.annotation_mode, 'x': original_point.x(), 'y': original_point.y(),
+                          'z': self.current_z}
             segment = self.active_duct_system.get_segment(self.active_segment_name)
             if segment:
                 segment.add_annotation(annotation)
-                # Use the color and size specific to the annotation type
+                # Use the color specific to the annotation type
                 color = self.annotation_colors.get(self.annotation_mode, Qt.red)
                 pen = QPen(color, self.get_adjusted_line_thickness())
                 brush = QBrush(color)
@@ -1329,21 +1553,19 @@ class DuctSystemGUI(QMainWindow):
             else:
                 self.statusBar().showMessage("No previous branch point to revert to.")
 
-    def edit_annotation_names(self):
-        """Open a dialog to edit annotation button names."""
-        for i, button in enumerate(self.annotation_buttons[:-1]):  # Exclude the "Specify Name" button
-            new_name, ok = QInputDialog.getText(
-                self, "Edit Annotation Name", f"Enter new name for '{button.text()}':"
-            )
-            if ok and new_name:
-                self.default_annotation_names[i] = new_name
-                button.setText(new_name)
-                # Update the annotation_colors dictionary
-                if new_name not in self.annotation_colors:
-                    # Assign a new color if not already present
-                    hue = i / len(self.default_annotation_names)
-                    color = QColor.fromHsv(int(hue * 360), 255, 255)
-                    self.annotation_colors[new_name] = color
+    def change_outline_color(self):
+        if self.outlines_data:
+            color = QColorDialog.getColor()
+            if color.isValid():
+                self.outline_color = color
+                # Update the outline items
+                for item in self.outline_items:
+                    pen = item.pen()
+                    pen.setColor(self.outline_color)
+                    item.setPen(pen)
+                self.statusBar().showMessage("Outline color updated.")
+        else:
+            QMessageBox.warning(self, "Change Outline Color", "No outlines loaded.")
 
     def show_edit_properties_dialog(self):
         dialog = QDialog(self)
@@ -1367,15 +1589,6 @@ class DuctSystemGUI(QMainWindow):
         self.line_thickness_slider.setMaximum(10)
         self.line_thickness_slider.setValue(self.annotation_line_thickness)  # Reflect current value
         layout.addWidget(self.line_thickness_slider)
-
-        # Color pickers for each annotation type
-        self.color_buttons = {}
-        for annotation_name in self.default_annotation_names:
-            layout.addWidget(QLabel(f"{annotation_name} Color:"))
-            color_button = QPushButton("Choose Color")
-            color_button.clicked.connect(lambda _, n=annotation_name: self.choose_annotation_color(n))
-            layout.addWidget(color_button)
-            self.color_buttons[annotation_name] = color_button
 
         # Apply and close buttons
         button_layout = QHBoxLayout()
@@ -1414,30 +1627,14 @@ class DuctSystemGUI(QMainWindow):
                         if isinstance(item, QGraphicsEllipseItem):
                             adjusted_point_size = self.get_adjusted_point_size()
                             adjusted_line_thickness = self.get_adjusted_line_thickness()
+                            color = self.annotation_colors.get(annotation['name'], Qt.red)
                             item.setRect(
                                 display_point.x() - (adjusted_point_size / 2),
                                 display_point.y() - (adjusted_point_size / 2),
                                 adjusted_point_size, adjusted_point_size
                             )
-                            item.setPen(QPen(self.annotation_colors.get(annotation['name'], Qt.red),
-                                             adjusted_line_thickness))
-                            item.setBrush(QBrush(self.annotation_colors.get(annotation['name'], Qt.red)))
-
-        # Update existing segment lines' appearance
-        for duct_system in self.duct_systems:
-            for segment_name, segment_lines in self.segment_items.get(duct_system, {}).items():
-                segment = duct_system.get_segment(segment_name)
-                if segment:
-                    status = segment.get_property("Status")
-                    if status == "Positive":
-                        color = Qt.green
-                    elif status == "Negative":
-                        color = Qt.red
-                    else:
-                        color = Qt.blue
-                    adjusted_line_thickness = self.get_adjusted_line_thickness()
-                    for line_item in segment_lines:
-                        line_item.setPen(QPen(color, adjusted_line_thickness))
+                            item.setPen(QPen(color, adjusted_line_thickness))
+                            item.setBrush(QBrush(color))
 
         self.statusBar().showMessage("Annotation properties updated.")
 
@@ -1455,54 +1652,6 @@ class DuctSystemGUI(QMainWindow):
                         line_item.setPen(QPen(color, adjusted_line_thickness))
 
             self.statusBar().showMessage("All segment line colors updated.")
-
-    def annotate_active_segment(self):
-        if not self.active_segment_name:
-            self.statusBar().showMessage("No active segment to annotate.")
-            return
-
-        segment = self.active_duct_system.get_segment(self.active_segment_name)
-        if not segment:
-            self.statusBar().showMessage("Active segment not found.")
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Annotate Segment: {self.active_segment_name}")
-        dialog.resize(300, 200)
-
-        layout = QVBoxLayout()
-
-        # Example properties: Type, Description
-        layout.addWidget(QLabel("Type:"))
-        self.segment_type_input = QLineEdit(dialog)
-        self.segment_type_input.setText(segment.get_property("Type") or "")
-        layout.addWidget(self.segment_type_input)
-
-        layout.addWidget(QLabel("Description:"))
-        self.segment_description_input = QLineEdit(dialog)
-        self.segment_description_input.setText(segment.get_property("Description") or "")
-        layout.addWidget(self.segment_description_input)
-
-        # Add Status (Positive/Negative)
-        layout.addWidget(QLabel("Status (Positive/Negative):"))
-        self.segment_status_input = QComboBox(dialog)
-        self.segment_status_input.addItems(["", "Positive", "Negative"])
-        self.segment_status_input.setCurrentText(segment.get_property("Status") or "")
-        layout.addWidget(self.segment_status_input)
-
-        # Apply and Close buttons
-        button_layout = QHBoxLayout()
-        apply_button = QPushButton("Apply", dialog)
-        apply_button.clicked.connect(lambda: self.apply_segment_properties(dialog, segment))
-        button_layout.addWidget(apply_button)
-
-        close_button = QPushButton("Close", dialog)
-        close_button.clicked.connect(dialog.accept)
-        button_layout.addWidget(close_button)
-
-        layout.addLayout(button_layout)
-        dialog.setLayout(layout)
-        dialog.exec_()
 
     def apply_segment_properties(self, dialog, segment):
         segment_type = self.segment_type_input.text()
@@ -1600,19 +1749,23 @@ class DuctSystemGUI(QMainWindow):
             "Instructions:\n\n"
             "- Click 'Load Image(s)' to load a TIFF image with multiple channels or Z-slices.\n"
             "- Use 'Segment Mode' to draw segments between branch points.\n"
-            "- Use 'Panning Mode' to move the view, scrolling always works for zooming.\n"
+            "- Use 'Panning Mode' to move the view; scrolling always works for zooming.\n"
             "- Press 'S' to toggle Segment Mode (draw segments).\n"
-            "- Press 'P' to toggle Panning Mode (move around the image).\n"
+            "- Press 'M' to toggle Panning Mode (move around the image).\n"
             "- Press 'O' to select and activate branch points.\n"
-            "- Press 'Delete' or 'D' to remove the last created branch.\n"
+            "- Press 'Delete' to remove the last created branch.\n"
             "- Press 'Backspace' to revert the active branch point to the previous point.\n"
             "- Use 'Z' or 'X' to navigate between Z slices (up and down).\n"
             "- Press 'N' to create a new origin.\n"
-            "- Use the 'Edit' menu to customize annotation names, properties, and segment colors.\n"
+            "- Use the 'Edit' menu to configure segment annotations and keybindings.\n"
+            "- While in Segment Mode, press the assigned toggle key to activate/deactivate an annotation.\n"
             "- Use the 'Brightness' option in the 'Channels' menu to adjust the brightness of individual channels.\n\n"
-
-            "Note that the menu contains an option to delete any branch point and its children.\n\n"
-
+            
+            "Note that currently, after having set intermediate points and branchpoint creates weird lines.\n\n"
+            "Also, loading of outlines is still slightly broken.\n\n"
+            
+            "If you have big images, I recommend setting the resolution down before loading it\n\n"
+            
             "Developed by Jeroen Doornbos based on a version from Jacco van Rheenen."
         )
 
@@ -1641,12 +1794,11 @@ class DuctSystem:
         self.branch_points = {}
         self.segments = {}
 
-    def add_branch_point(self, name, location, z, is_endpoint=False):
+    def add_branch_point(self, name, location, z):
         self.branch_points[name] = {
             "name": name,
             "location": location,
             "z": z,
-            "is_endpoint": is_endpoint
         }
 
     def get_branch_point(self, name):

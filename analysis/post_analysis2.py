@@ -25,7 +25,7 @@ annotated_tracks_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_d
 
 # --- Parameters ---
 max_distance = 25
-override_threshold = 400  # Set to None for automatic thresholding
+override_threshold = 900  # Set to None for automatic thresholding
 step_size = 10  # Fixed step size in pixels
 
 # --- Step 1: Load the Raw Ecad Image ---
