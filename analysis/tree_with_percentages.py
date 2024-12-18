@@ -1,200 +1,190 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import json
-from skimage import io
+import warnings
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
 from shapely.geometry import LineString, shape
 from rasterio.features import rasterize
-import networkx as nx
-from matplotlib import cm, colors
+from skimage import io
+from matplotlib import colors
+from matplotlib.colors import LinearSegmentedColormap
 
-ecad_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0003.tif'
-duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
-annotated_tracks_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
-
-# Parameters
-threshold_value = 500
-
-# Step 1: Load the raw Ecad channel image
-ecad_image = io.imread(ecad_image_path)
-
-# Step 2: Load and rasterize the duct border annotations to create a mask
-with open(duct_borders_path, 'r') as f:
-    duct_borders = json.load(f)
-
-shapes = []
-for feature in duct_borders['features']:
-    geometry = feature['geometry']
-    shapely_geom = shape(geometry)
-    shapes.append((shapely_geom, 1))  # Assign a value of 1 inside the polygon
-
-mask = rasterize(
-    shapes,
-    out_shape=ecad_image.shape,
-    fill=0,
-    dtype=np.uint8,
-    all_touched=False
-)
-
-masked_image = ecad_image.copy()
-masked_image[mask == 0] = 0
-
-# Step 3: Threshold the image to detect positive signal
-binary_image = masked_image > threshold_value
-
-# Step 4: Load the annotated tracks (duct segments and branch points)
-with open(annotated_tracks_path, 'r') as f:
-    annotated_tracks = json.load(f)
-
-system = annotated_tracks['duct_systems'][2]
-branch_points = system['branch_points']
-segments = system['segments']
-
-# Step 5: Rasterize all segments at once
-segment_id_mapping = {}
-segment_shapes = []
-for idx, (segment_name, segment_data) in enumerate(segments.items(), start=1):
-    segment_id = idx
-    segment_id_mapping[segment_id] = segment_name
-
-    start_bp = branch_points[segment_data['start_bp']]
-    end_bp = branch_points[segment_data['end_bp']]
-    points = [(start_bp['x'], start_bp['y'])]
-
-    for point in segment_data.get('internal_points', []):
-        points.append((point['x'], point['y']))
-
-    points.append((end_bp['x'], end_bp['y']))
-
-    line = LineString(points)
-    buffered_line = line.buffer(5)
-
-    segment_shapes.append((buffered_line, segment_id))
-
-# Rasterize all segments together
-segment_mask = rasterize(
-    shapes=segment_shapes,
-    out_shape=ecad_image.shape,
-    fill=0,
-    dtype=np.uint16,
-    all_touched=True
-)
-
-# Apply the duct mask to the segment mask
-segment_mask[mask == 0] = 0
-
-# Flatten the arrays for vectorized operations
-flat_segment_mask = segment_mask.flatten()
-flat_binary_image = binary_image.flatten()
-
-# Keep only the pixels that belong to segments
-valid_indices = flat_segment_mask > 0
-flat_segment_mask = flat_segment_mask[valid_indices]
-flat_binary_image = flat_binary_image[valid_indices]
-
-# Calculate total and positive pixels per segment using bincount
-total_pixels_per_segment = np.bincount(flat_segment_mask)
-positive_pixels_per_segment = np.bincount(
-    flat_segment_mask, weights=flat_binary_image.astype(np.uint8))
-
-# Step 6: Calculate the percentage of positive pixels for each segment
-segment_percentages = {}
-for segment_id in range(1, max(segment_id_mapping.keys()) + 1):
-    total_pixels = total_pixels_per_segment[segment_id] if segment_id < len(
-        total_pixels_per_segment) else 0
-    positive_pixels = positive_pixels_per_segment[segment_id] if segment_id < len(
-        positive_pixels_per_segment) else 0
-
-    if total_pixels > 0:
-        percentage = (positive_pixels / total_pixels) * 100
-    else:
-        percentage = 0
-
-    segment_name = segment_id_mapping[segment_id]
-    segment_percentages[segment_name] = percentage
-
-# Step 7: Build the tree structure from segments and branch points
-G = nx.Graph()
-for segment_name, segment_data in segments.items():
-    start_bp = segment_data['start_bp']
-    end_bp = segment_data['end_bp']
-    G.add_edge(start_bp, end_bp, segment_name=segment_name)
-
-# Step 8: Plot the tree with segments colored according to positive percentages
-if not nx.is_tree(G):
-    T = nx.minimum_spanning_tree(G)
-else:
-    T = G
+from utils.fixing_annotations import simplify_duct_system
+from utils.plotting_trees import plot_hierarchical_graph
+from utils.loading_saving import load_duct_systems, clean_duct_data, create_duct_graph
 
 
-def hierarchy_pos(G, root=None, vert_gap=0.2, vert_loc=0, x_start=0):
-    """
-    Positions nodes in a hierarchical layout, allowing overlapping x-coordinates at different levels.
+def compute_segment_percentages(image_path, duct_system, borders_path, threshold):
+    if image_path is None:
+        return {}, 0, 0
 
-    Parameters:
-    - G: The graph (must be a tree).
-    - root: The root node of the tree.
-    - vert_gap: Vertical gap between levels of the tree.
-    - vert_loc: Vertical location of the root.
-    - x_start: Starting horizontal position.
+    image = io.imread(image_path)
+    with open(borders_path, 'r') as f:
+        duct_borders = json.load(f)
 
-    Returns:
-    - pos: A dictionary mapping nodes to positions (x, y).
-    """
-    if not nx.is_tree(G):
-        raise TypeError('This function requirs a tree graph.')
-    if root is None:
-        root = list(G.nodes)[0]
-    pos = {}
-    next_x = [x_start-1]
+    shapes = [(shape(feat['geometry']), 1) for feat in duct_borders['features']]
+    mask = rasterize(shapes, out_shape=image.shape, fill=0, dtype=np.uint8, all_touched=False)
 
-    def recurse(node, depth, parent=None):
-        children = list(G.neighbors(node))
-        if parent is not None and parent in children:
-            children.remove(parent)
-        if len(children) == 0:
-            # Leaf node
-            pos[node] = (next_x[0], vert_loc - depth * vert_gap)
-            next_x[0] += 1  # Move to the next horizontal position
-        else:
-            # Internal node
-            child_x = []
-            for child in children:
-                recurse(child, depth + 1, node)
-                child_x.append(pos[child][0])
-            # Position this node at the center of its children
-            pos[node] = ((min(child_x) + max(child_x)) / 2, vert_loc - depth * vert_gap)
+    masked_image = image.copy()
+    masked_image[mask == 0] = 0
+    binary_image = masked_image > threshold
 
-    recurse(root, 0)
-    return pos
+    branch_points = duct_system['branch_points']
+    segments = duct_system['segments']
 
-root_node = list(T.nodes)[0]
-pos = hierarchy_pos(T, root=root_node)
+    segment_shapes = []
+    segment_id_mapping = {}
+    for idx, (seg_name, seg_data) in enumerate(segments.items(), start=1):
+        segment_id_mapping[idx] = seg_name
+        start_bp = branch_points[seg_data['start_bp']]
+        end_bp = branch_points[seg_data['end_bp']]
+        pts = [(start_bp['x'], start_bp['y'])]
+        pts.extend([(p['x'], p['y']) for p in seg_data.get('internal_points', [])])
+        pts.append((end_bp['x'], end_bp['y']))
+        line = LineString(pts).buffer(5)
+        segment_shapes.append((line, idx))
 
-edge_colors = []
-for u, v in T.edges():
-    segment_name = T.edges[u, v]['segment_name']
-    percentage = segment_percentages.get(segment_name, 0)
-    edge_colors.append(percentage)
+    segment_mask = rasterize(segment_shapes, out_shape=image.shape, fill=0, dtype=np.uint16, all_touched=True)
+    segment_mask[mask == 0] = 0
 
-max_percentage = max(edge_colors)
-colors_with_black = np.vstack([[0, 0, 0, 1], cm.get_cmap('coolwarm')(np.linspace(0, 1, 256))])
-cmap = colors.ListedColormap(colors_with_black)
+    valid_indices = segment_mask.flatten() > 0
+    flat_segment_mask = segment_mask.flatten()[valid_indices]
+    flat_binary = binary_image.flatten()[valid_indices]
 
-# Normalize and apply the new colormap
-norm = colors.Normalize(vmin=0, vmax=max_percentage)
-sm = cm.ScalarMappable(norm=norm, cmap=cmap)
-sm.set_array([])
+    total = np.bincount(flat_segment_mask)
+    positive = np.bincount(flat_segment_mask, weights=flat_binary.astype(np.uint8))
 
-edge_colors_mapped = [cmap(norm(percentage)) for percentage in edge_colors]
+    seg_percentages = {}
+    max_id = max(segment_id_mapping.keys()) if segment_id_mapping else 0
+    for seg_id in range(1, max_id + 1):
+        t = total[seg_id] if seg_id < len(total) else 0
+        p = positive[seg_id] if seg_id < len(positive) else 0
+        seg_percentages[segment_id_mapping[seg_id]] = (p / t * 100) if t > 0 else 0
 
-plt.figure(figsize=(12, 8))
-ax = plt.gca()
+    # Compute overall percentage
+    overall_total = np.sum(total[1:])  # skip index 0 (no segment)
+    overall_positive = np.sum(positive[1:])
+    overall_percentage = (overall_positive / overall_total * 100) if overall_total > 0 else 0
 
-nx.draw(T, pos=pos, with_labels=False, node_size=0, node_color='none', edge_color=edge_colors_mapped, width=2, ax=ax)
+    return seg_percentages, overall_total, overall_positive
 
-cbar = plt.colorbar(sm, ax=ax)
-cbar.set_label('% Positive Pixels')
 
-plt.title('Tree Colored by % Positive Pixels per Segment')
-plt.axis('off')
-plt.show()
+def create_segment_color_map(duct_system, segment_percentages_list):
+    num_channels = len(segment_percentages_list)
+    colors_list = ['red', 'green', 'blue']
+    max_percentages = [max(d.values()) if d else 1 for d in segment_percentages_list]
+
+    cmaps, norms = [], []
+    for i in range(num_channels):
+        cmap = LinearSegmentedColormap.from_list(f"my_{colors_list[i]}", [(0, 'black'), (1, colors_list[i])])
+        cmaps.append(cmap)
+        norms.append(colors.Normalize(vmin=0, vmax=max_percentages[i]))
+
+    segments = duct_system['segments']
+    segment_color_map = {}
+    for seg_name in segments:
+        vals = [d.get(seg_name, 0) for d in segment_percentages_list]
+        rgb = [int((v / 100) * 255) for v in vals]
+        # scale rgb non-linearly
+        rgb = [int(255 * (v / 255) ** 0.3) for v in rgb]
+        # normalise
+
+
+        while len(rgb) < 3:
+            rgb.append(0)
+        segment_color_map[seg_name] = '#%02x%02x%02x' % (rgb[0], rgb[1], rgb[2])
+
+    return segment_color_map, cmaps, norms
+
+
+def plot_with_channels(duct_system, G, segment_color_map, cmaps, norms, red_used, green_used, blue_used):
+    fig, ax = plot_hierarchical_graph(
+        G, system_data=duct_system,
+        root_node=list(G.nodes)[0],
+        use_hierarchy_pos=True,
+        vert_gap=8,
+        linewidth= 1.1,
+        orthogonal_edges=True,
+        annotation_to_color={},
+        segment_color_map=segment_color_map
+    )
+
+    # Determine which channels are present
+    labels = []
+    if red_used: labels.append('Red (%)')
+    if green_used: labels.append('Green (%)')
+    if blue_used: labels.append('Blue (%)')
+
+    # for (cmap, norm, lbl) in zip(cmaps, norms, labels):
+    #     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    #     sm.set_array([])
+    #     cbar = plt.colorbar(sm, ax=ax, orientation='vertical')
+    #     cbar.set_label(lbl)
+
+    plt.title('Duct System Colored by Channel Percentages')
+    plt.show()
+
+
+if __name__ == "__main__":
+    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
+    # duct_borders_path =  r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
+    #
+    #
+    # # Set channels (use None if not available)
+    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0003.tif'
+    # blue_image_path = None
+    # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0004.tif'
+
+    # json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
+    # duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
+    #
+    # red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
+    # blue_image_path = None
+    # green_image_path = None
+    # threshold_value = 500
+
+    json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+    duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+
+    blue_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+    green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+    red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+    threshold_value = 200
+
+    duct_systems = load_duct_systems(json_path)
+    system_idx = 1
+    duct_system = duct_systems[system_idx]
+
+    if len(duct_system["segments"]) > 0:
+        duct_system = clean_duct_data(duct_system)
+        main_branch_node = list(duct_system["branch_points"].keys())[0]
+        duct_system = simplify_duct_system(duct_system, main_branch_node)
+
+    G = create_duct_graph(duct_system)
+
+    seg_red, tot_red, pos_red = compute_segment_percentages(red_image_path, duct_system, duct_borders_path, threshold_value)
+    seg_green, tot_green, pos_green = compute_segment_percentages(green_image_path, duct_system, duct_borders_path, threshold_value)
+    seg_blue, tot_blue, pos_blue = compute_segment_percentages(blue_image_path, duct_system, duct_borders_path, threshold_value)
+
+    # Prepare list of dicts (omit empty)
+    percentages_list = [d for d in [seg_red, seg_green, seg_blue] if d]
+
+    segment_color_map, cmaps, norms = create_segment_color_map(duct_system, percentages_list)
+
+    # Filter cmaps/norms based on which channels are used
+    channel_used = [red_image_path is not None, green_image_path is not None, blue_image_path is not None]
+    cmaps_final = [c for c, u in zip(cmaps, channel_used) if u]
+    norms_final = [n for n, u in zip(norms, channel_used) if u]
+
+    # Print overall percentages
+    if tot_red > 0:
+        print(f"Overall Red: {pos_red}/{tot_red} = {pos_red/tot_red*100:.2f}%")
+    if tot_green > 0:
+        print(f"Overall Green: {pos_green}/{tot_green} = {pos_green/tot_green*100:.2f}%")
+    if tot_blue > 0:
+        print(f"Overall Blue: {pos_blue}/{tot_blue} = {pos_blue/tot_blue*100:.2f}%")
+
+    plot_with_channels(duct_system, G, segment_color_map, cmaps_final, norms_final,
+                       red_used=(red_image_path is not None),
+                       green_used=(green_image_path is not None),
+                       blue_used=(blue_image_path is not None))
