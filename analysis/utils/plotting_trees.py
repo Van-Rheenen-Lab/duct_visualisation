@@ -2,59 +2,65 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from typing import Dict, Any
 import matplotlib.patches as mpatches
+import numpy as np
+from matplotlib import cm, colors
+import json
+from shapely.geometry import LineString, shape
+from rasterio.features import rasterize
+from skimage import io
 
 def create_annotation_color_map(
         system_data: Dict[str, Any],
         fixed_annotation: str = 'Endpoint',
-        fixed_color: str = '#FF0000',  # Red in HEX
+        fixed_color: str = '#0080FE',  # Blue in HEX
         colormap_name: str = 'tab20',
 ) -> Dict[str, str]:
 
-    # Step 1: Extract unique annotations
     annotations = set()
     for seg_data in system_data.get('segments', {}).values():
         properties = seg_data.get('properties', {})
         annotation = properties.get('Annotation', [])
-
         # Ensure annotation is a list
         if isinstance(annotation, str):
             annotation = [annotation]
-        elif isinstance(annotation, list):
-            pass
-        else:
-            # Handle unexpected types by skipping
+        elif not isinstance(annotation, list):
             continue
-
         annotations.update(annotation)
 
     # Remove the fixed annotation if it exists
     annotations.discard(fixed_annotation)
 
-    # Step 2: Assign colors
     cmap = plt.cm.get_cmap(colormap_name)
-    num_colors = cmap.N  # Number of distinct colors in the colormap
+    num_colors = cmap.N
 
     annotation_to_color = {}
     sorted_annotations = sorted(annotations)  # Sort for consistent color assignment
 
     for i, annotation in enumerate(sorted_annotations):
-        color = cmap(i % num_colors)
+        color = cmap((i + 1) % num_colors)
         # Convert RGBA to HEX
         color_hex = '#%02x%02x%02x' % tuple(int(255 * c) for c in color[:3])
         annotation_to_color[annotation] = color_hex
 
-    # Assign the fixed color to the fixed annotation
     annotation_to_color[fixed_annotation] = fixed_color
 
     return annotation_to_color
 
-def get_segment_color(segment_data, annotation_to_color):
+def get_segment_color(segment_data, annotation_to_color, segment_color_map=None):
+    """
+    Get the color for a given segment. If segment_color_map is provided and the segment name
+    is found there, use it. Otherwise, fall back to annotation_to_color.
+    """
+
+    segment_name = segment_data.get('segment_name')
+    if segment_color_map and segment_name in segment_color_map:
+        return segment_color_map[segment_name]
 
     if 'properties' in segment_data and 'Annotation' in segment_data['properties']:
         ann = segment_data['properties']['Annotation']
-        return annotation_to_color.get(ann, 'blue')
-    return 'black'
+        return annotation_to_color.get(ann, 'red')
 
+    return 'black'
 
 def hierarchy_pos(G, root=None, vert_gap=0.2):
     if root is None:
@@ -81,9 +87,10 @@ def hierarchy_pos(G, root=None, vert_gap=0.2):
 
 def plot_hierarchical_graph(G, system_data=None, root_node=None,
                             use_hierarchy_pos=False, vert_gap=1,
-                            orthogonal_edges=False, vert_length=1, annotation_to_color=None):
+                            orthogonal_edges=False, vert_length=1,
+                            annotation_to_color=None, segment_color_map=None, linewidth = 1.5):
     """
-    Revised function with integrated depth calculation and depth-level colorbar.
+    Revised function that can color segments by annotation or by an externally provided segment_color_map.
     """
 
     if not G.nodes:
@@ -97,7 +104,6 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
     if use_hierarchy_pos:
         pos = hierarchy_pos(G, root=root_node, vert_gap=vert_gap)
     else:
-
         pos = nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB', root=root_node)
 
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -110,9 +116,10 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
         c = 'black'
         segment_data = None
         if segment_name and system_data and 'segments' in system_data:
-            segment_data = system_data['segments'].get(segment_name, None)
-        if segment_data:
-            c = get_segment_color(segment_data, annotation_to_color)
+            seg_data = system_data['segments'].get(segment_name, {})
+            # Add 'segment_name' to segment_data for convenience
+            seg_data['segment_name'] = segment_name
+            c = get_segment_color(seg_data, annotation_to_color, segment_color_map)
 
         x1, y1 = pos[u]
         x2, y2 = pos[v]
@@ -129,22 +136,20 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
                 y2 = y2 - (vert_length - 1)
 
             # L-shaped edges
-            ax.plot([x1, x2], [y1, y1], color=c, linewidth=1, zorder=1)
-            ax.plot([x2, x2], [y1, y2], color=c, linewidth=1, zorder=1)
+            ax.plot([x1, x2], [y1, y1], color=c, linewidth=linewidth, zorder=1)
+            ax.plot([x2, x2], [y1, y2], color=c, linewidth=linewidth, zorder=1)
         else:
             # Straight edges
-            ax.plot([x1, x2], [y1, y2], color=c, linewidth=1, zorder=1)
+            ax.plot([x1, x2], [y1, y2], color=c, linewidth=linewidth, zorder=1)
 
 
-
-    # If system_data is available, create a legend for annotations
-    if system_data:
-
+    # If system_data and annotation_to_color are available, create a legend for annotations
+    if system_data and annotation_to_color and not segment_color_map:
         legend_handles = []
         for ann, color in annotation_to_color.items():
             legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
                                              markerfacecolor=color, label=ann))
-        ax.legend(handles=legend_handles, title='Annotations', loc='lower center', bbox_to_anchor=(0.5, -0.7))
+        ax.legend(handles=legend_handles, title='Annotations', loc='lower center', bbox_to_anchor=(0.5, -1.2))
 
     # add a depth-level scale bar to the right
     lowest_y = min(y for x, y in pos.values())
@@ -160,3 +165,4 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
             y = highest_y - i * vert_gap
             ax.plot([-5, -4], [y, y], color='black', linewidth=1)
 
+    return fig, ax

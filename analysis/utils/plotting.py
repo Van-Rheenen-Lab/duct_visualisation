@@ -39,16 +39,7 @@ while True:
 
 from plotting_trees import create_annotation_color_map
 
-annotation_to_color = {
-    'Endpoint' : 'red',
-    '15' : 'green',
-    '6' : 'yellow',
-    '8' : 'orange',
-    '11' : 'purple',
-
-}
-
-# annotation_to_color = create_annotation_color_map(system_data)
+annotation_to_color = create_annotation_color_map(system_data)
 
 # After merging
 plot_3d_system(G, system_data, annotation_to_color)
