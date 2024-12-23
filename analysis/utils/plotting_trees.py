@@ -37,7 +37,7 @@ def create_annotation_color_map(
     sorted_annotations = sorted(annotations)  # Sort for consistent color assignment
 
     for i, annotation in enumerate(sorted_annotations):
-        color = cmap((i + 1) % num_colors)
+        color = cmap((i +2) % num_colors)
         # Convert RGBA to HEX
         color_hex = '#%02x%02x%02x' % tuple(int(255 * c) for c in color[:3])
         annotation_to_color[annotation] = color_hex

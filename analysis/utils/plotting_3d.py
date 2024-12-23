@@ -1,5 +1,5 @@
 import networkx as nx
-from plotting_trees import get_segment_color
+from .plotting_trees import get_segment_color
 
 def plot_3d_system(G, system_data, annotation_to_color):
     import plotly.graph_objects as go
@@ -37,8 +37,7 @@ def plot_3d_system(G, system_data, annotation_to_color):
                         # set size to 0 to avoid markers at the end of the line
                         marker=dict(size=0, color=c),
                         line=dict(color=c, width=4),
-                        name=f"Component {i}",
-                        showlegend=(i == 0)  # show legend only once
+                        name= segment_data['properties'].get('Annotation', segment_name) if segment_data else segment_name
                     )
                 )
 

@@ -1,10 +1,10 @@
 import json
 import matplotlib.pyplot as plt
 import networkx as nx
-from loading_saving import load_duct_systems, create_duct_graph, save_annotations
-from plotting_trees import plot_hierarchical_graph
-from fixing_annotations import connect_component_to_main, simplify_duct_system
-from plotting_3d import plot_3d_system
+from utils.loading_saving import load_duct_systems, create_duct_graph, save_annotations
+from utils.plotting_trees import plot_hierarchical_graph
+from utils.fixing_annotations import connect_component_to_main, simplify_duct_system
+from utils.plotting_3d import plot_3d_system
 
 # Load duct systems
 duct_systems = load_duct_systems(
@@ -37,7 +37,7 @@ while True:
     if not merged_any:
         break
 
-from plotting_trees import create_annotation_color_map
+from utils.plotting_trees import create_annotation_color_map
 
 annotation_to_color = create_annotation_color_map(system_data)
 
