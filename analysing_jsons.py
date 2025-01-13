@@ -12,11 +12,11 @@ def extract_bp_number(bp_name):
     return None  # Return None if not a standard 'bp' name
 
 # Load the JSON data
-with open(r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json', 'r') as file:
+with open(r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations example hendrik\coseq.json', 'r') as file:
     data = json.load(file)
 
 # We'll process each duct system in the data
-for system_index, duct_system in enumerate(data["duct_systems"]):
+for system_index, duct_system in enumerate([data["duct_systems"][1]]):
     branch_points = duct_system['branch_points']
     segments = duct_system['segments']
 
@@ -235,9 +235,9 @@ for system_index, duct_system in enumerate(data["duct_systems"]):
     # Set the title and show the plot
     ax.set_title('Node Centrality Heatmap')
     plt.show()
-
-# After processing all duct systems, save the cleaned and normalized data back to a JSON file
-output_file = 'normalized_annotations.json'
-with open(output_file, 'w') as f:
-    json.dump(data, f, indent=4)
-print(f"Normalized data saved to {output_file}")
+#
+# # After processing all duct systems, save the cleaned and normalized data back to a JSON file
+# output_file = 'normalized_annotations.json'
+# with open(output_file, 'w') as f:
+#     json.dump(data, f, indent=4)
+# print(f"Normalized data saved to {output_file}")
