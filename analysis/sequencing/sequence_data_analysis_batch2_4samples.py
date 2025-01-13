@@ -1,9 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-import glasbey
 import itertools
 
 file_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\sequencing_data\matrix_mutations_updates.txt'
@@ -12,7 +9,7 @@ file_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotati
 df = pd.read_csv(file_path, delimiter=r'\s+', header=0, quotechar='"')
 
 # Select sample columns to process
-sample_columns = [f'wgs_S11340Nr{i}' for i in range(2, 8)]
+sample_columns = [f'wgs_S11340Nr{i}' for i in range(4, 8)]
 
 # Extract ALT and TOTAL from each sample column
 for col in sample_columns:
@@ -41,17 +38,24 @@ df_clean = df_clean.fillna(0.0)
 vaf_columns = [f'{col}_VAF' for col in sample_columns]
 data = df_clean[vaf_columns]
 
-# Remove rows that do not have at least 2 columns with VAF > 0
+# Remove rows that do not have at least 1 column with VAF > 0
 mask = (data > 0).sum(axis=1) >= 1
 data = data[mask]
 df_clean = df_clean.loc[mask]
+original_len = len(data)
 
-# Calculate the fraction of rows that have >= 2 and <= 5 positive VAFs
-mask2 = ((data > 0).sum(axis=1) >= 2) & ((data > 0).sum(axis=1) <= 5)
+# Filter all rows that have no values above 0.1, because the whole dataset was filtered on that as well
+mask = (data > 0.1).sum(axis=1) > 0
+data = data[mask]
+df_clean = df_clean.loc[mask]
+
+
+# Calculate the fraction of rows that have >= 2 and <= 3 positive VAFs
+mask2 = ((data > 0).sum(axis=1) >= 2) & ((data > 0).sum(axis=1) <= 3)
 df_clean2 = df_clean.loc[mask2]
 
 # calculate average VAF for fully positive rows
-mask3 = (data > 0).sum(axis=1) == 6
+mask3 = (data > 0).sum(axis=1) == 4
 avg_vaf = data[mask3].mean(axis=1)
 print(f"Average VAF for fully positive: {avg_vaf.mean()}")
 # plot histogram of average VAF for fully positive rows from 0 to 1
@@ -66,17 +70,17 @@ plt.ylabel('Frequency')
 plt.title('VAFs for fully positive mutations')
 
 
-fraction = len(df_clean2) / len(df)
-print(f"Fraction of rows with at least 2 and max 5 positive VAFs: {fraction:.2%}")
+fraction = len(df_clean2) / original_len
+print(f"Fraction of rows with at least 2 and max 3 positive VAFs: {fraction:.2%}")
 
 # Define a threshold to consider a VAF "positive"
 vaf_threshold = 0
 
 # Generate an ordered pattern list, from 1-positive-bit to 6-positive-bits
 pattern_order = []
-for r in range(1, 7):
-    for combo in itertools.combinations(range(6), r):
-        pattern = ['0'] * 6
+for r in range(1, 5):
+    for combo in itertools.combinations(range(4), r):
+        pattern = ['0'] * 4
         for bit_index in combo:
             pattern[bit_index] = '1'
         pattern_order.append("".join(pattern))
@@ -90,20 +94,26 @@ df_clean['Pattern'] = data.apply(assign_pattern, axis=1)
 pattern_to_cluster = {p: i for i, p in enumerate(pattern_order)}
 df_clean['Cluster'] = df_clean['Pattern'].apply(lambda x: pattern_to_cluster.get(x, -1))
 
-# Sort by cluster for heatmap visualization
-df_clean = df_clean.sort_values('Cluster')
+# calculate average VAF and add to df_clean
+df_clean['Average_VAF'] = data[data > 0].mean(axis=1)
+df_clean = df_clean.sort_values('Average_VAF')
 
-# Rename columns for clarity
+# plot a histogram of average VAF of only the fully positive rows
+plt.figure(figsize=(8, 5))
+plt.hist(avg_vaf, bins=15, range=(0, 1))
+plt.xlabel('Average VAF')
+plt.ylabel('Frequency')
+plt.title('Average VAFs for fully positive mutations')
+
+# Sort by cluster while keeping the order by intensity
+df_clean = df_clean.sort_values('Cluster', kind="stable")
 rename_dict = {
-    'wgs_S11340Nr2_VAF': 'HM1',
-    'wgs_S11340Nr3_VAF': 'HM3',
     'wgs_S11340Nr4_VAF': 'HM6',
     'wgs_S11340Nr5_VAF': 'HM8',
     'wgs_S11340Nr6_VAF': 'HM11',
     'wgs_S11340Nr7_VAF': 'HM15'
 }
 df_clean = df_clean.rename(columns=rename_dict)
-
 vaf_columns = list(rename_dict.values())
 data = df_clean[vaf_columns]
 
