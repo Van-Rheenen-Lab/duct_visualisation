@@ -8,7 +8,7 @@ from utils.plotting_3d import plot_3d_system
 
 # Load duct systems
 duct_systems = load_duct_systems(
-    r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations example hendrik\Coseq.json")
+    r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations hendrik\A18.json")
 
 duct_graphs = []
 for idx, system_data in duct_systems.items():
@@ -39,12 +39,18 @@ while True:
 
 from utils.plotting_trees import create_annotation_color_map
 
-annotation_to_color = create_annotation_color_map(system_data)
+# annotation_to_color = create_annotation_color_map(system_data)
+
+# something like dict("Abnormal": "#FF0000", "Endpoint": "#0080FE")
+annotation_to_color = {
+    "Abnormal": "#FF0000",
+    "Endpoint": "#0080FE"
+}
 
 # After merging
 plot_3d_system(G, system_data, annotation_to_color)
 print("Plotting hierarchical after merging:")
-plot_hierarchical_graph(G, system_data=system_data, annotation_to_color=annotation_to_color, root_node='bp68', use_hierarchy_pos=True, orthogonal_edges=True, vert_gap=1, vert_length=1)
+plot_hierarchical_graph(G, system_data=system_data, annotation_to_color=annotation_to_color, use_hierarchy_pos=True, orthogonal_edges=True, vert_gap=1, vert_length=1)
 
 save_annotations(duct_systems, "fixed_annotations.json")
 plt.show()

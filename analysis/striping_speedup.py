@@ -57,133 +57,107 @@ def precompute_line_parameters(line):
 def project_pixels_onto_line(xs, ys, line_coords, segment_vecs, segment_lengths, cumulative_lengths):
     px = xs[:, None]
     py = ys[:, None]
-
     sx = line_coords[:-1, 0][None, :]
     sy = line_coords[:-1, 1][None, :]
-
     vx = segment_vecs[:,0][None, :]
     vy = segment_vecs[:,1][None, :]
-
     seg_len_sq = segment_lengths**2
 
     dot = (px - sx)*vx + (py - sy)*vy
     t = dot / seg_len_sq[None, :]
     t_clamped = np.clip(t, 0, 1)
-
     proj_x = sx + t_clamped*vx
     proj_y = sy + t_clamped*vy
-
     dx = px - proj_x
     dy = py - proj_y
     dist_sq = dx*dx + dy*dy
-
     idx_min = np.argmin(dist_sq, axis=1)
     t_chosen = t_clamped[np.arange(len(xs)), idx_min]
-
     chosen_seg_lengths = segment_lengths[idx_min]
     chosen_cum_lengths = cumulative_lengths[idx_min]
-
     fraction_dist = chosen_cum_lengths + t_chosen * chosen_seg_lengths
     min_dist_sq = dist_sq[np.arange(len(xs)), idx_min]
-
     return fraction_dist, min_dist_sq
 
 def assign_pixels_to_subsegments(line, duct_mask, images, threshold, N=100, buffer_width=5):
-    # Extract bounding box around line corridor to reduce pixels processed
-    # Get line bounding box
     minx, miny, maxx, maxy = line.bounds
-    # Expand by buffer_width
     minx = max(int(minx - buffer_width), 0)
     miny = max(int(miny - buffer_width), 0)
     maxx = min(int(maxx + buffer_width), duct_mask.shape[1]-1)
     maxy = min(int(maxy + buffer_width), duct_mask.shape[0]-1)
-
-    # pixels in bounding box that are inside duct_mask
     sub_mask = duct_mask[miny:maxy+1, minx:maxx+1]
     ys, xs = np.where(sub_mask == 1)
     if len(xs) == 0:
-        # no pixels in segment
         num_channels = len(images)
         return np.zeros((N, num_channels), dtype=int), np.zeros((N, num_channels), dtype=int)
-
-    # Shift xs, ys back to global coords
     xs = xs + minx
     ys = ys + miny
-
     line_coords, segment_vecs, segment_lengths, cumulative_lengths, total_length = precompute_line_parameters(line)
     num_channels = len(images)
     if total_length == 0:
         return np.zeros((N, num_channels), dtype=int), np.zeros((N, num_channels), dtype=int)
 
-    # Extract pixel values
     pixel_values = []
     for img in images:
         if img is None:
             pixel_values.append(np.zeros(len(xs), dtype=np.uint8))
         else:
             pixel_values.append(img[ys, xs])
-    pixel_values = np.array(pixel_values).T  # (num_pixels, num_channels)
-
+    pixel_values = np.array(pixel_values).T
     fraction_dist, min_dist_sq = project_pixels_onto_line(xs, ys, line_coords, segment_vecs, segment_lengths, cumulative_lengths)
     fractions = fraction_dist / total_length
-
-    # Check if pixel is within buffer_width distance of line
-    # min_dist_sq is the squared distance
-    # If min_dist_sq <= buffer_width^2, pixel is inside segment corridor
     inside_corridor = (min_dist_sq <= buffer_width*buffer_width)
     if not np.any(inside_corridor):
         return np.zeros((N, num_channels), dtype=int), np.zeros((N, num_channels), dtype=int)
-
     fractions = fractions[inside_corridor]
     pixel_values = pixel_values[inside_corridor]
-
     bins = (fractions * N).astype(int)
     bins[bins == N] = N - 1
-
     totals = np.zeros((N, num_channels), dtype=int)
     positives = np.zeros((N, num_channels), dtype=int)
-
     for c in range(num_channels):
         channel_vals = pixel_values[:, c]
         is_positive = (channel_vals > threshold).astype(int)
         totals[:, c] = np.bincount(bins, minlength=N)
         positives[:, c] = np.bincount(bins, weights=is_positive, minlength=N)
-
     return totals, positives
 
+
 def create_rgb_color_from_percentages(vals):
-    rgb = [int((v / 100) * 255) for v in vals]
-    while len(rgb) < 3:
-        rgb.append(0)
-    return '#%02x%02x%02x' % (rgb[0], rgb[1], rgb[2])
+    scaled = [int((v / 100) * 255) for v in vals]  # [red, yellow, green]
+    max_val = max(scaled)
+    if max_val == 0:
+        return '#000000'
+    max_idx = scaled.index(max_val)
+    if max_idx == 0:
+        return '#ff0000'  # Red
+    elif max_idx == 1:
+        return '#00ff00'  # Green
+    elif max_idx == 2:
+        return '#ffff00'  # Yellow
+
 
 def plot_hierarchical_graph_subsegments(G, system_data, root_node,
-                                        duct_mask, duct_polygon,
-                                        red_image=None, green_image=None, blue_image=None,
-                                        threshold=500, N=100,
+                                        duct_mask, red_image=None, green_image=None, yellow_image=None,
+                                        threshold=500, N=100, draw_nodes=False,
                                         use_hierarchy_pos=False, vert_gap=1,
-                                        orthogonal_edges=True, vert_length=1,
-                                        linewidth=1.5, buffer_width=5):
+                                        orthogonal_edges=True, linewidth=1.5, buffer_width=5):
 
     if not G.nodes:
         raise ValueError("The graph is empty.")
-
-    pos = hierarchy_pos(G, root=root_node, vert_gap=vert_gap) if use_hierarchy_pos else nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB', root=root_node)
-    fig, ax = plt.subplots(figsize=(10, 6))
+    pos = (hierarchy_pos(G, root=root_node, vert_gap=vert_gap) if use_hierarchy_pos
+           else nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB', root=root_node))
+    fig, ax = plt.subplots(figsize=(35, 12))
     ax.set_aspect('equal')
     ax.axis('off')
-
-    images = [red_image, green_image, blue_image]
+    images = [red_image, green_image, yellow_image]
     segment_data_cache = {}
 
     for (u, v) in G.edges():
         segment_name = G[u][v].get('segment_name', None)
-
         x1, y1 = pos[u]
         x2, y2 = pos[v]
-
         if segment_name is None or 'segments' not in system_data:
-            # No segment data, just draw a black line
             if orthogonal_edges:
                 if y1 < y2:
                     x1, y1, x2, y2 = x2, y2, x1, y1
@@ -195,66 +169,63 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
 
         if segment_name not in segment_data_cache:
             line = get_line_for_segment(system_data, segment_name)
-            totals, positives = assign_pixels_to_subsegments(line, duct_mask, images, threshold, N=N, buffer_width=buffer_width)
+            totals, positives = assign_pixels_to_subsegments(line, duct_mask, images,
+                                                             threshold, N=N,
+                                                             buffer_width=buffer_width)
             segment_data_cache[segment_name] = (totals, positives)
 
         totals, positives = segment_data_cache[segment_name]
-
-        # Compute percentages
         percentages = np.zeros_like(positives, dtype=float)
         mask_nonzero = (totals > 0)
         percentages[mask_nonzero] = (positives[mask_nonzero] / totals[mask_nonzero]) * 100
 
-        # Draw segments subdivided
         if orthogonal_edges:
             horiz_len = abs(x2 - x1)
             vert_len = abs(y2 - y1)
             total_len = horiz_len + vert_len
-
             if y1 < y2:
                 x1, y1, x2, y2 = x2, y2, x1, y1
                 horiz_len = abs(x2 - x1)
                 vert_len = abs(y2 - y1)
                 total_len = horiz_len + vert_len
-
-            def dist_to_coords(dist):
-                if total_len == 0:
-                    return x1, y1
-                if horiz_len > 0:
-                    if dist <= horiz_len:
-                        x = x1 + (x2 - x1)*(dist/horiz_len)
-                        y = y1
-                        return x, y
+            if total_len > 0:
+                corner_frac = horiz_len / total_len if total_len > 0 else 0
+                sign = np.sign(y2 - y1)
+                for i in range(N):
+                    start_frac = i / N
+                    end_frac = (i + 1) / N
+                    dist_start = start_frac * total_len
+                    dist_end = end_frac * total_len
+                    vals = percentages[i, :]
+                    color = create_rgb_color_from_percentages(vals)
+                    if end_frac <= corner_frac:
+                        sx = x1 + (x2 - x1) * (dist_start / horiz_len) if horiz_len > 0 else x1
+                        sy = y1
+                        ex = x1 + (x2 - x1) * (dist_end / horiz_len) if horiz_len > 0 else x1
+                        ey = y1
+                        ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
+                    elif start_frac >= corner_frac:
+                        dist_start_vert = dist_start - horiz_len
+                        dist_end_vert = dist_end - horiz_len
+                        sx = x2
+                        sy = y1 + sign * dist_start_vert if vert_len > 0 else y1
+                        ex = x2
+                        ey = y1 + sign * dist_end_vert if vert_len > 0 else y1
+                        ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
                     else:
-                        remaining = dist - horiz_len
-                        sign = np.sign(y2 - y1)
-                        x = x2
-                        y = y1 + sign * remaining
-                        return x, y
-                else:
-                    # purely vertical
-                    if vert_len == 0:
-                        return x1, y1
-                    sign = np.sign(y2 - y1)
-                    x = x1
-                    y = y1 + sign * dist
-                    return x, y
-
-            for i in range(N):
-                start_frac = i / N
-                end_frac = (i + 1) / N
-                sub_start_dist = start_frac * total_len
-                sub_end_dist = end_frac * total_len
-
-                sx, sy = dist_to_coords(sub_start_dist)
-                ex, ey = dist_to_coords(sub_end_dist)
-
-                vals = percentages[i, :]
-                color = create_rgb_color_from_percentages(vals)
-                ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
-
+                        dist_corner = horiz_len
+                        sx = x1 + (x2 - x1) * (dist_start / horiz_len) if horiz_len > 0 else x1
+                        sy = y1
+                        cx = x1 + (x2 - x1) * (dist_corner / horiz_len) if horiz_len > 0 else x1
+                        cy = y1
+                        ax.plot([sx, cx], [sy, cy], color=color, linewidth=linewidth, zorder=1)
+                        dist_start_vert = dist_corner - horiz_len
+                        dist_end_vert = dist_end - horiz_len
+                        vx = x2
+                        vy_start = y1 + sign * dist_start_vert if vert_len > 0 else y1
+                        vy_end = y1 + sign * dist_end_vert if vert_len > 0 else y1
+                        ax.plot([vx, vx], [vy_start, vy_end], color=color, linewidth=linewidth, zorder=1)
         else:
-            # Straight line
             for i in range(N):
                 start_frac = i / N
                 end_frac = (i + 1) / N
@@ -262,17 +233,14 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
                 sy = y1 + (y2 - y1)*start_frac
                 ex = x1 + (x2 - x1)*end_frac
                 ey = y1 + (y2 - y1)*end_frac
-
                 vals = percentages[i, :]
                 color = create_rgb_color_from_percentages(vals)
                 ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
 
-    # Add colorbars
-    channel_used = [red_image is not None, green_image is not None, blue_image is not None]
+    channel_used = [red_image is not None, green_image is not None, yellow_image is not None]
     channel_used = [False, False, False]
-    colors_list = ['red', 'green', 'blue']
-    channel_labels = ['Red (%)', 'Green (%)', 'Blue (%)']
-
+    colors_list = ['red', 'green', 'yellow']
+    channel_labels = ['Red (%)', 'Green (%)', 'Yellow (%)']
     cmaps = []
     norms = []
     lbls = []
@@ -289,26 +257,48 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax, orientation='vertical')
         cbar.set_label(lbl)
+
+    if draw_nodes:
+        for node in G.nodes():
+            x, y = pos[node]
+            ax.text(x, y, node, fontsize=5, ha='center', va='center', zorder=3, color='navy')
+
+
     plt.tight_layout()
-    plt.show()
+
     return fig, ax
 
 if __name__ == "__main__":
+    #
+    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+    # duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+    #
+    # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+    # yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+    # threshold_value = 500
 
-    json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-    duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+    red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
+    duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
+    json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
+    green_image_path = None
+    yellow_image_path = None
+    threshold_value = 1000
 
-    blue_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-    green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-    red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
-    threshold_value = 500
+    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
+    # duct_borders_path =  r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
+    #
+    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0003.tif'
+    # yellow_image_path = None
+    # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0004.tif'
+    # threshold_value = 500
 
     red_image = io.imread(red_image_path) if red_image_path else None
     green_image = io.imread(green_image_path) if green_image_path else None
-    blue_image = io.imread(blue_image_path) if blue_image_path else None
+    yellow_image = io.imread(yellow_image_path) if yellow_image_path else None
 
     duct_systems = load_duct_systems(json_path)
-    system_idx = 1
+    system_idx = 0
     duct_system = duct_systems[system_idx]
 
     if len(duct_system["segments"]) > 0:
@@ -318,15 +308,25 @@ if __name__ == "__main__":
 
     G = create_duct_graph(duct_system)
 
-    # Create duct polygon from borders
     with open(duct_borders_path, 'r') as f:
         duct_borders = json.load(f)
-    duct_polygon = unary_union([shape(feat['geometry']) for feat in duct_borders['features']])
 
-    # (Optional) Simplify polygon if extremely complex:
-    # duct_polygon = duct_polygon.simplify(2.0, preserve_topology=True)
+    valid_geoms = []
+    for feat in duct_borders['features']:
+        geom = shape(feat['geometry'])
+        if not geom.is_valid:
+            # Option 1: use buffer(0)
+            geom = geom.buffer(0)
 
-    # Create duct mask once
+            # Option 2 (Shapely 2.0+): use make_valid(geom)
+            # geom = make_valid(geom)
+
+        if geom.is_valid:
+            valid_geoms.append(geom)
+        else:
+            print("Skipping geometry that could not be fixed:", feat['geometry'])
+
+    duct_polygon = unary_union(valid_geoms)
     base_shape = red_image.shape
     shapes = [(duct_polygon, 1)]
     duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
@@ -336,15 +336,15 @@ if __name__ == "__main__":
         duct_system,
         root_node=list(G.nodes)[0],
         duct_mask=duct_mask,
-        duct_polygon=duct_polygon,
         red_image=red_image,
         green_image=green_image,
-        blue_image=blue_image,
+        yellow_image=yellow_image,
         threshold=threshold_value,
-        N=100,
+        N=30,
         use_hierarchy_pos=True,
-        vert_gap=15,
+        vert_gap=5,
         orthogonal_edges=True,
-        linewidth=1.2,
-        buffer_width=5
+        linewidth=1,
+        buffer_width=10
     )
+    plt.show()
