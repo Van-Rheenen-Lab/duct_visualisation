@@ -1,34 +1,42 @@
 import networkx as nx
 import matplotlib.pyplot as plt
-from typing import Dict, Any
-import matplotlib.patches as mpatches
-import numpy as np
-from matplotlib import cm, colors
-import json
-from shapely.geometry import LineString, shape
-from rasterio.features import rasterize
-from skimage import io
+from typing import Dict, Any, Optional
+
 
 def create_annotation_color_map(
         system_data: Dict[str, Any],
-        fixed_annotation: str = 'Endpoint',
+        fixed_annotation: Optional[str] = 'Endpoint',
         fixed_color: str = '#0080FE',  # Blue in HEX
         colormap_name: str = 'tab20',
 ) -> Dict[str, str]:
+    """
+    Creates a mapping from annotation label to hex color. If fixed_annotation is not None,
+    we reserve a color for it and ensure that annotation has the given fixed_color.
+
+    :param system_data: Dictionary containing segment data with annotations.
+    :param fixed_annotation: (optional) The annotation that should keep a fixed color. If None, no fixed color is assigned.
+    :param fixed_color: The HEX color for the fixed_annotation, if applicable.
+    :param colormap_name: Name of the matplotlib colormap to use for assigning colors.
+    :return: Dictionary of annotation -> color in hex format.
+    """
 
     annotations = set()
     for seg_data in system_data.get('segments', {}).values():
         properties = seg_data.get('properties', {})
         annotation = properties.get('Annotation', [])
+
         # Ensure annotation is a list
         if isinstance(annotation, str):
             annotation = [annotation]
         elif not isinstance(annotation, list):
+            # If 'Annotation' is not a string or list, skip
             continue
+
         annotations.update(annotation)
 
-    # Remove the fixed annotation if it exists
-    annotations.discard(fixed_annotation)
+    # If we have a fixed_annotation, remove it from the dynamic set so it doesn't get a random color.
+    if fixed_annotation:
+        annotations.discard(fixed_annotation)
 
     cmap = plt.cm.get_cmap(colormap_name)
     num_colors = cmap.N
@@ -37,14 +45,21 @@ def create_annotation_color_map(
     sorted_annotations = sorted(annotations)  # Sort for consistent color assignment
 
     for i, annotation in enumerate(sorted_annotations):
-        color = cmap((i +2) % num_colors)
+        color = cmap((i + 2) % num_colors)
         # Convert RGBA to HEX
-        color_hex = '#%02x%02x%02x' % tuple(int(255 * c) for c in color[:3])
+        color_hex = '#{:02x}{:02x}{:02x}'.format(
+            int(255 * color[0]),
+            int(255 * color[1]),
+            int(255 * color[2])
+        )
         annotation_to_color[annotation] = color_hex
 
-    annotation_to_color[fixed_annotation] = fixed_color
+    # Only assign a color if fixed_annotation is not None
+    if fixed_annotation:
+        annotation_to_color[fixed_annotation] = fixed_color
 
     return annotation_to_color
+
 
 def get_segment_color(segment_data, annotation_to_color, segment_color_map=None):
     """
