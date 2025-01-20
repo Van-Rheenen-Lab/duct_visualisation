@@ -283,7 +283,7 @@ if __name__ == "__main__":
     json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
     green_image_path = None
     yellow_image_path = None
-    threshold_value = 1000
+    threshold_value = 500
 
     # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
     # duct_borders_path =  r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
@@ -307,9 +307,10 @@ if __name__ == "__main__":
         duct_system = simplify_duct_system(duct_system, main_branch_node)
 
     G = create_duct_graph(duct_system)
+    start_node = None
+    if start_node is None:
+        # find the parent of the first branch point
 
-    with open(duct_borders_path, 'r') as f:
-        duct_borders = json.load(f)
 
     valid_geoms = []
     for feat in duct_borders['features']:
@@ -334,7 +335,7 @@ if __name__ == "__main__":
     plot_hierarchical_graph_subsegments(
         G,
         duct_system,
-        root_node=list(G.nodes)[0],
+        root_node=start_node,
         duct_mask=duct_mask,
         red_image=red_image,
         green_image=green_image,

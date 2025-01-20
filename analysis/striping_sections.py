@@ -6,45 +6,90 @@ from shapely.ops import unary_union
 from rasterio.features import rasterize
 from skimage import io
 import matplotlib.pyplot as plt
+from shapely.validation import make_valid
+from analysis.utils.loading_saving import load_duct_systems, create_duct_graph
+from striping_speedup import (
+    load_duct_systems,
+    clean_duct_data,
+    simplify_duct_system,
+    plot_hierarchical_graph_subsegments
+)
+
+import networkx as nx
+import warnings
+
 
 def create_directed_duct_graph(duct_system):
     """
-    Creates a directed graph where each segment goes from
-    start_bp -> end_bp. This implies start_bp is the 'parent'
-    and end_bp is the 'child'.
+    Creates a directed graph with nodes for all branch_points,
+    and directed edges from start_bp -> end_bp for each segment.
+
+    If a segment references an undefined branch point, logs a warning
+    and skips that segment.
     """
     G_dir = nx.DiGraph()
     branch_points = duct_system.get("branch_points", {})
     segments = duct_system.get("segments", {})
 
+    # Add all branch points as nodes with attributes
+    for bp_name, bp_data in branch_points.items():
+        G_dir.add_node(bp_name, **bp_data)
+
+    # Add directed edges for valid segments
     for seg_name, seg_data in segments.items():
-        start_id = seg_data["start_bp"]
-        end_id = seg_data["end_bp"]
-        if start_id in branch_points and end_id in branch_points:
-            # Add the nodes if missing
-            G_dir.add_node(start_id)
-            G_dir.add_node(end_id)
-            # Directed edge from start -> end
-            G_dir.add_edge(start_id, end_id, segment_name=seg_name)
+        start_bp = seg_data["start_bp"]
+        end_bp = seg_data["end_bp"]
+
+        if start_bp not in branch_points or end_bp not in branch_points:
+            warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
+            continue
+
+        G_dir.add_edge(start_bp, end_bp, segment_name=seg_name)
 
     return G_dir
 
+
+import networkx as nx
+from collections import deque
+
 def get_downstream_subgraph(G_dir, start_node):
     """
-    Performs a directed BFS/DFS from 'start_node' and collects
-    only the nodes reachable via outgoing edges (successors).
-    Returns a subgraph of those downstream nodes (including start_node).
+    Performs a directed BFS from 'start_node' and collects
+    all nodes reachable via outgoing edges (successors).
+    Returns a new subgraph containing those downstream nodes
+    (including start_node).
+
+    Parameters
+    ----------
+    G_dir : nx.DiGraph
+        A directed graph.
+    start_node : hashable
+        The node in G_dir from which to begin the BFS.
+
+    Returns
+    -------
+    nx.DiGraph
+        A subgraph of G_dir containing all nodes reachable
+        via successors of `start_node` (plus `start_node`),
+        along with edges among those nodes.
     """
+    # If the start_node doesn't exist in the graph, return an empty subgraph
+    if start_node not in G_dir:
+        return G_dir.subgraph([]).copy()
+
     visited = set()
-    frontier = [start_node]
-    while frontier:
-        current = frontier.pop(0)
+    queue = deque([start_node])
+
+    while queue:
+        current = queue.popleft()
         if current not in visited:
             visited.add(current)
-            # Move only 'downstream': from current -> child
+            # Only explore children in the "downstream" direction
             for child in G_dir.successors(current):
                 if child not in visited:
-                    frontier.append(child)
+                    queue.append(child)
+
+    # Return a subgraph copy containing visited nodes (and edges among them)
     return G_dir.subgraph(visited).copy()
 
 def remove_downstream_nodes(G_dir, cut_nodes):
@@ -70,12 +115,6 @@ def remove_downstream_nodes(G_dir, cut_nodes):
     G_dir.remove_nodes_from(to_remove)
     return G_dir
 
-from striping_speedup import (
-    load_duct_systems,
-    clean_duct_data,
-    simplify_duct_system,
-    plot_hierarchical_graph_subsegments
-)
 
 def plot_downstream_graph_subsegments(
     duct_system,
@@ -103,6 +142,14 @@ def plot_downstream_graph_subsegments(
 
     # Build a directed graph
     G_dir = create_directed_duct_graph(duct_system)
+
+    if start_node is None:
+        first_bp = list(G_dir.nodes)[0]
+        # find parent of first branch point iteratively
+        while len(list(G_dir.predecessors(first_bp))) == 1:
+            first_bp = list(G_dir.predecessors(first_bp))[0]
+        start_node = first_bp
+        print(f"Starting from first branch point: {start_node}")
 
     # Extract just the portion downstream of 'start_node'
     subG = get_downstream_subgraph(G_dir, start_node)
@@ -132,16 +179,26 @@ def plot_downstream_graph_subsegments(
     return fig, ax
 
 
-json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+# json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+# duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+#
+# green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+# yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+# red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+# threshold_value = 1000
+# selected_bp = 'bp330'
+# cut_nodes = ['bp336']
+# system_idx = 1
 
-green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
-threshold_value = 1000
-selected_bp = 'bp330'
-cut_nodes = ['bp336']
-# cut_nodes = None
+red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
+duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
+json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
+green_image_path = None
+yellow_image_path = None
+threshold_value = 500
+selected_bp = None
+cut_nodes = None
+system_idx = 0
 
 if __name__ == "__main__":
 
@@ -152,7 +209,6 @@ if __name__ == "__main__":
 
     # Load the duct system
     duct_systems = load_duct_systems(json_path)
-    system_idx = 1
     duct_system = duct_systems[system_idx]
 
     # Clean/simplify
@@ -164,10 +220,39 @@ if __name__ == "__main__":
     # Build a polygon mask of the duct
     with open(duct_borders_path, 'r') as f:
         duct_borders = json.load(f)
-    duct_polygon = unary_union([shape(feat['geometry']) for feat in duct_borders['features']])
+
+    valid_geoms = []
+    for feat in duct_borders['features']:
+        geom = shape(feat['geometry'])
+        if not geom.is_valid:
+
+            geom = make_valid(geom)
+
+        if geom.is_valid:
+            valid_geoms.append(geom)
+        else:
+            print("Skipping geometry that could not be fixed:", feat['geometry'])
+
+    duct_polygon = unary_union(valid_geoms)
     base_shape = red_image.shape
     shapes = [(duct_polygon, 1)]
     duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
+
+    # plot_hierarchical_graph_subsegments(G,
+    #                                     duct_system,
+    #                                     root_node=selected_bp,
+    #                                     duct_mask=duct_mask,
+    #                                     red_image=red_image,
+    #                                     green_image=green_image,
+    #                                     yellow_image=yellow_image,
+    #                                     threshold=threshold_value,
+    #                                     N=30,
+    #                                     use_hierarchy_pos=True,
+    #                                     vert_gap=5,
+    #                                     orthogonal_edges=True,
+    #                                     linewidth=1,
+    #                                     buffer_width=10
+    # )
 
     plot_downstream_graph_subsegments(
         duct_system=duct_system,
@@ -177,12 +262,12 @@ if __name__ == "__main__":
         green_image=green_image,
         yellow_image=yellow_image,
         threshold=threshold_value,
-        draw_nodes=True,
-        N=20,
+        draw_nodes=False,
+        N=30,
         use_hierarchy_pos=True,
-        vert_gap=2,
+        vert_gap=5,
         orthogonal_edges=True,
-        linewidth=1.5,
+        linewidth=1,
         buffer_width=10,
         cut_nodes=cut_nodes # pass in one or more nodes to snip
     )
