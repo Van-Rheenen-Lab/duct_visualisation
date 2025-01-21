@@ -1,5 +1,5 @@
 import random
-import networkx as nx
+import numpy as np
 
 def simulate_adulthood(G, rounds=33, progress_data=None):
     """
@@ -24,7 +24,7 @@ def simulate_adulthood(G, rounds=33, progress_data=None):
             continue
 
         # Pick 10% (at least 1)
-        num_keep = max(1, int(0.1 * len(pubertal_list)))
+        num_keep = max(1, int(np.mean(0.1 * len(pubertal_list))))
         chosen_indices = random.sample(range(len(pubertal_list)), k=num_keep)
         chosen_indices = set(chosen_indices)
 
