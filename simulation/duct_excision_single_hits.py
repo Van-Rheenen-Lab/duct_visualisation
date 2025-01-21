@@ -34,7 +34,7 @@ def compute_single_hit_ratios(G, max_ducts=None, random_seed=42):
     # Shuffle and slice subsets
     # -------------------------------------------------
     # Truncate the first n off, to avoid early termination results
-    unique_ducts = unique_ducts[0:]
+    unique_ducts = unique_ducts[10:]
     random.shuffle(unique_ducts)
 
     results = []
@@ -78,7 +78,7 @@ def main():
     bifurcation_prob = 0.01
     initial_side_count = n_clones / 2
     initial_center_count = n_clones / 2
-    initial_termination_prob = 0.3
+    initial_termination_prob = 0.1
 
     # Collect the ratio DataFrames for each replicate
     list_of_dfs = []
@@ -107,19 +107,19 @@ def main():
         df_ratios = compute_single_hit_ratios(G_puberty, max_ducts=30)
         list_of_dfs.append(df_ratios)
 
-    # -------------------------------------------------------------
-    # Plot each replicate as scatter, then plot the mean line
-    # -------------------------------------------------------------
-    plt.figure(figsize=(7, 5))
+    plt.figure(figsize=(10, 6))
 
     # Plot each replicate's data as scatter
     for idx, df in enumerate(list_of_dfs):
         plt.scatter(
             df["subset_size"],
             df["ratio"],
-            alpha=0.5,
+            alpha=0.2,
             label=f"Replicate {idx+1}"
         )
+
+    # add 1 point how our real data looks like: 67.54% at 4 ducts
+    plt.scatter(4, 0.6754, color='red', label='Data Patient 2')
 
     # Compute the average ratio across replicates
     df_concat = pd.concat(list_of_dfs)
@@ -134,9 +134,9 @@ def main():
         label="Mean ratio"
     )
 
-    plt.xlabel("Number of Ducts in Random Subset")
-    plt.ylabel("Ratio (# clones seen exactly once / # clones seen at least once)")
-    plt.title("Single-Hit Ratio vs. Subset Size (Multiple Puberty Simulations)")
+    plt.xlabel("Number of Randomly Selected Ducts (No Early Ducts Selected)")
+    plt.ylabel("Ratio (# progeny in exactly one duct / # progeny in at least one duct)")
+    plt.title("Single-Hit Ratio vs. Number of Selected Ducts")
     plt.legend()
     plt.show()
 

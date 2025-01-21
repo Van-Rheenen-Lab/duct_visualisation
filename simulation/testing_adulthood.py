@@ -51,7 +51,7 @@ random.seed(42)
 
 # 1) Run puberty simulation
 G, progress_data_puberty = simulate_ductal_tree(
-    max_cells=9_00_000,
+    max_cells=2_000_000,
     bifurcation_prob=0.01,
     initial_side_count=50,
     initial_center_count=50,

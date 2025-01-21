@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from puberty import simulate_ductal_tree
-from analysis.utils.plotting_trees import plot_hierarchical_graph, create_annotation_color_map
+from plotting_simulated_ducts import plotting_ducts
 import random
 
 def run_sim_and_plot():
