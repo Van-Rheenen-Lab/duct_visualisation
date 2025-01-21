@@ -1,5 +1,5 @@
 import networkx as nx
-from .loading_saving import create_duct_graph
+from .loading_saving import create_directed_duct_graph
 import warnings
 
 def simplify_duct_system(duct_system, main_branch_node):
@@ -20,7 +20,7 @@ def simplify_duct_system(duct_system, main_branch_node):
         The simplified duct system.
     """
     # Create a graph from the duct system
-    G = create_duct_graph(duct_system)
+    G = create_directed_duct_graph(duct_system)
 
     # Ensure the main_branch_node exists
     if main_branch_node not in G:

@@ -42,13 +42,13 @@ data = df_clean[vaf_columns]
 mask = (data > 0).sum(axis=1) >= 1
 data = data[mask]
 df_clean = df_clean.loc[mask]
-original_len = len(data)
+
 
 # Filter all rows that have no values above 0.1, because the whole dataset was filtered on that as well
 mask = (data > 0.1).sum(axis=1) > 0
 data = data[mask]
 df_clean = df_clean.loc[mask]
-
+original_len = len(df_clean)
 
 # Calculate the fraction of rows that have >= 2 and <= 3 positive VAFs
 mask2 = ((data > 0).sum(axis=1) >= 2) & ((data > 0).sum(axis=1) <= 3)
@@ -70,8 +70,19 @@ plt.ylabel('Frequency')
 plt.title('VAFs for fully positive mutations')
 
 
-fraction = len(df_clean2) / original_len
+fraction = len(data[mask2]) / original_len
 print(f"Fraction of rows with at least 2 and max 3 positive VAFs: {fraction:.2%}")
+
+# calculate fraction of rows with 4 positive VAFs
+mask1 = (data > 0).sum(axis=1) == 4
+fraction = len(data[mask1]) / original_len
+print(f"Fraction of rows with 4 positive VAFs: {fraction:.2%}")
+
+# calculate fraction of rows with 1 positive VAF
+mask1 = (data > 0).sum(axis=1) == 1
+fraction = len(data[mask1]) / original_len
+print(f"Fraction of rows with 1 positive VAF: {fraction:.2%}")
+
 
 # Define a threshold to consider a VAF "positive"
 vaf_threshold = 0

@@ -6,10 +6,9 @@ from rasterio.features import rasterize
 from skimage import io
 import matplotlib.pyplot as plt
 from shapely.validation import make_valid
-from analysis.utils.loading_saving import load_duct_systems, clean_duct_data
+from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph
 from analysis.utils.fixing_annotations import simplify_duct_system
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
-import warnings
 import networkx as nx
 from collections import deque
 
@@ -139,27 +138,49 @@ def plot_downstream_graph_subsegments(
     )
     return fig, ax
 
-
-json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
-
-green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+#
+# json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+# duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+#
+# green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+# yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+# red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
 # threshold_value = 1000
-# selected_bp = 'bp330'
-# cut_nodes = ['bp336']
-system_idx = 1
+# selected_bp = None
+# cut_nodes = None
+# system_idx = 1
 
 # red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
 # duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
 # json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
 # green_image_path = None
 # yellow_image_path = None
+# threshold_value = 1000
+# selected_bp = None
+# cut_nodes = None
+# system_idx = 0
+
+# json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
+# duct_borders_path =  r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
+#
+# red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0003.tif'
+# yellow_image_path = None
+# green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0001.tif'
+# system_idx = 2
+# threshold_value = 1000
+# selected_bp = None
+# cut_nodes = None
+
+json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\annotations 7324-1.json"
+duct_borders_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\01062024_7324_L5_sma_max.lif - TileScan 1 Merged_Processed001_forbranchanalysis.geojson"
+
+red_image_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\30052024_7324_L5_sma_max_clean_forbranchanalysis-0005.tif"
+green_image_path = None
+yellow_image_path = None
+system_idx = 1
 threshold_value = 1000
 selected_bp = None
 cut_nodes = None
-# system_idx = 0
 
 if __name__ == "__main__":
 
@@ -174,7 +195,6 @@ if __name__ == "__main__":
 
     # Clean/simplify
     if len(duct_system["segments"]) > 0:
-        duct_system = clean_duct_data(duct_system)
         first_branch_node = list(duct_system["branch_points"].keys())[0]
         duct_system = simplify_duct_system(duct_system, first_branch_node)
 
@@ -199,21 +219,6 @@ if __name__ == "__main__":
     shapes = [(duct_polygon, 1)]
     duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
 
-    for poly in valid_geoms:
-        # 'buffer(0)' is often used to fix slight geometry issues.
-        # If poly is already valid, you could skip 'buffer(0)'.
-        poly_clean = poly.buffer(0)
-
-        # For a simple polygon:
-        x, y = poly_clean.exterior.xy
-        plt.plot(x, y, 'b-')  # 'b-' is a blue line
-
-        # If polygon has interior "holes", you can plot them too:
-        for ring in poly_clean.interiors:
-            ix, iy = ring.xy
-            plt.plot(ix, iy, 'r-')  # plot holes in red (for example)
-
-
     plot_downstream_graph_subsegments(
         duct_system=duct_system,
         start_node=selected_bp,
@@ -223,17 +228,17 @@ if __name__ == "__main__":
         yellow_image=yellow_image,
         threshold=threshold_value,
         draw_nodes=False,
-        N=30,
+        N=1,
         use_hierarchy_pos=True,
-        vert_gap=5,
+        vert_gap=2,
         orthogonal_edges=True,
-        linewidth=1,
+        linewidth=2,
         buffer_width=10,
         cut_nodes=cut_nodes
     )
 
     # save figure at high resolution
 
-    plt.savefig('28052024_2435322_L5_ecad_mAX-0006_duct.png', dpi=800)
+    plt.savefig('2473536_Cft_24W_thresh1000_nostripes.png', dpi=800)
 
     plt.show()
