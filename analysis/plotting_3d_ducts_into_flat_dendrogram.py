@@ -1,4 +1,3 @@
-import json
 import matplotlib.pyplot as plt
 import networkx as nx
 from utils.loading_saving import load_duct_systems, create_duct_graph, save_annotations
@@ -38,19 +37,15 @@ while True:
         break
 
 from utils.plotting_trees import create_annotation_color_map
+annotation_to_color = create_annotation_color_map(system_data)
 
-# annotation_to_color = create_annotation_color_map(system_data)
-
-# something like dict("Abnormal": "#FF0000", "Endpoint": "#0080FE")
-annotation_to_color = {
-    "Abnormal": "#FF0000",
-    "Endpoint": "#0080FE"
-}
+## Request: set specific colors for specific annotations, just overwrite the annotation_to_color dictionary
+# annotation_to_color = {"Abnormal": "#FF0000", "Endpoint": "#0080FE"}
 
 # After merging
 plot_3d_system(G, system_data, annotation_to_color)
 print("Plotting hierarchical after merging:")
 plot_hierarchical_graph(G, system_data=system_data, annotation_to_color=annotation_to_color, use_hierarchy_pos=True, orthogonal_edges=True, vert_gap=1, vert_length=1)
 
-save_annotations(duct_systems, "fixed_annotations.json")
+# save_annotations(duct_systems, "fixed_annotations.json")
 plt.show()
