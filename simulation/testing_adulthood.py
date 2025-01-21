@@ -4,7 +4,7 @@ import random
 
 from puberty import simulate_ductal_tree
 from adulthood import simulate_adulthood
-from puberty_population_dynamics import plotting_ducts
+from plotting_simulated_ducts import plotting_ducts
 
 
 def plot_stack_counts_with_fixed_ids(iterations, dist_series, all_ids, title, color_map=None):
@@ -47,29 +47,35 @@ def plot_stack_counts_with_fixed_ids(iterations, dist_series, all_ids, title, co
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
 
-
-# ----------------------------------------------------------------------------
-# Example usage
-# ----------------------------------------------------------------------------
-random.seed(40)
+random.seed(42)
 
 # 1) Run puberty simulation
 G, progress_data_puberty = simulate_ductal_tree(
-    max_cells=9_000_00,
+    max_cells=9_00_000,
     bifurcation_prob=0.01,
     initial_side_count=50,
     initial_center_count=50,
     initial_termination_prob=0.2
 )
-plotting_ducts(G)
+
+# make a color hex dict with tab10 colors, but in hex in dict
+color_map = {"42": "#1f77b4", "84": "#ff7f0e", "12": "#2ca02c", "24": "#d62728"}
+
+
+plotting_ducts(G, vert_gap=5, color_map=color_map)
+plt.title("Ductal Tree at after Puberty, before Adulthood")
+
+
 # 2) Run adulthood simulation
 G, progress_data_adult = simulate_adulthood(G, rounds=33)
-plotting_ducts(G)
+plotting_ducts(G, vert_gap=5, color_map=color_map)
+plt.title("Ductal Tree at after Adulthood")
 
 
 # Extract puberty iteration data
-puberty_iters = progress_data_puberty["iteration"]  # e.g., [1,2,3,...]
+puberty_iters = progress_data_puberty["iteration"]
 puberty_dists = progress_data_puberty["clone_counts_over_time"]  # list of dicts (pubertal_id->count)
+num_active_tebs = progress_data_puberty["num_active_tebs"]
 
 # Extract adulthood iteration data
 adult_iters = progress_data_adult["iteration"]
@@ -133,6 +139,20 @@ plt.xlabel("Iteration")
 plt.ylabel("Number of Unique Adult IDs")
 plt.title("Unique Adult IDs Over Time")
 
+# plot unique pubertal IDs
+plt.figure(figsize=(8, 5))
+plt.plot(adult_iters, [len(d) for d in adult_pub_dists], label="Unique Pubertal IDs", color="blue")
+plt.xlabel("Iteration")
+plt.ylabel("Number of Unique Pubertal IDs in total duct system")
+plt.title("Unique Pubertal IDs Over Time in total duct")
+
+plt.figure(figsize=(8, 5))
+plt.plot(puberty_iters, num_active_tebs, label="Active TEBs", color="green")
+plt.xlabel("Iteration")
+plt.ylabel("Number of TEBs")
+plt.title("Active TEBs Over Time")
+plt.legend()
+plt.tight_layout()
 
 # plot_stack_counts_with_fixed_ids(
 #     iterations=adult_iters,
@@ -165,7 +185,7 @@ for d in unique_clones_per_duct:
 plt.plot(adult_iters, average_clones_per_duct, label="Average Unique Clones IDs per Duct", color="purple")
 plt.xlabel("Iteration")
 plt.ylabel("Average Clones per Duct")
-plt.title("Average Unique Pubertal IDs  per Duct Over Time")
+plt.title("Average Unique Pubertal IDs per Duct Over Time")
 
 # now individual ducts
 plt.figure(figsize=(8, 5))

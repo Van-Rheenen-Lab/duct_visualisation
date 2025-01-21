@@ -75,11 +75,10 @@ def simulate_ductal_tree(
     node_counter = 0
     root_node = node_counter
 
-
     # Initial TEB
     initial_teb = TEB(
-        side_cells=list(range(initial_side_count)),
-        center_cells=list(range(initial_side_count, initial_side_count + initial_center_count))
+        side_cells=list(range(int(initial_side_count))),
+        center_cells=list(range(int(initial_side_count), int(initial_side_count + initial_center_count)))
     )
 
     # Initialize the first 2 nodes, the first duct and the first TEB
@@ -100,7 +99,8 @@ def simulate_ductal_tree(
         "num_active_tebs": [],
         "avg_dom_fraction": [],
         "avg_dom_stem_fraction": [],
-        "teb_history": {}
+        "teb_history": {},
+        "duct_creation_history": []
     }
 
     iteration_count = 0
@@ -115,7 +115,11 @@ def simulate_ductal_tree(
             if "duct_clones" not in G[parent][start_node]:
                 G[parent][start_node]["duct_clones"] = []
             G[parent][start_node]["duct_clones"].extend(buffer_clones)
-        # Clear the buffer now that they've been deposited
+
+        # Immediately add these clones to deposited_clones_map permanently
+        for cid in buffer_clones:
+            deposited_clones_map[cid] = deposited_clones_map.get(cid, 0) + 1
+
         buffer_clones.clear()
 
     def deposit_teb_in_duct(G, node_id, clones_list):
@@ -139,6 +143,11 @@ def simulate_ductal_tree(
             return G[parent][start_node].get("duct_clones", [])
         return []
 
+    triple_nodes = []
+    quad_nodes = []
+
+
+
     while active_ends:
         iteration_count += 1
 
@@ -147,9 +156,7 @@ def simulate_ductal_tree(
         dom_fraction_sum = 0.0
         dom_stem_fraction_sum = 0.0
 
-        # ------------------------
-        # Compute stats per TEB
-        # ------------------------
+
         for (node_id, teb, buffer_clones) in active_ends:
             # Count local clones
             local_map = {}
@@ -203,13 +210,13 @@ def simulate_ductal_tree(
             avg_dom_fraction = 0.0
             avg_dom_stem_fraction = 0.0
 
-        # Combine deposited + active to get total system
+
+
         combined_map = dict(deposited_clones_map)
         for cid, count in active_clone_map.items():
             combined_map[cid] = combined_map.get(cid, 0) + count
 
-        total_cells = sum(deposited_clones_map.values()) + sum(active_clone_map.values())
-
+        total_cells = sum(combined_map.values())
 
         # Save iteration data
         progress_data["iteration"].append(iteration_count)
@@ -223,6 +230,7 @@ def simulate_ductal_tree(
         # Main growth / branching logic
         # ------------------------------------------------
         next_active_ends = []
+
 
 
         for (start_node, teb, buffer_clones) in active_ends:
@@ -244,6 +252,14 @@ def simulate_ductal_tree(
                         deposited_clones_map[c] = deposited_clones_map.get(c, 0) + 1
 
                     deposit_teb_in_duct(G, start_node, teb.side_cells + teb.center_cells)
+                    # append begin, end and iteration number to duct_creation_history
+
+                    parents = list(G.predecessors(start_node))
+                    if parents:
+                        parent = parents[0]
+                    progress_data["duct_creation_history"].append((parent, start_node, iteration_count))
+
+
 
                     parent = list(G.predecessors(start_node))[0]
                     duct_clones = get_current_duct_clones(G, start_node)
@@ -264,8 +280,17 @@ def simulate_ductal_tree(
                         G.remove_edge(parent, start_node)
                         # set start_node to parent
                         start_node = parent
-                        print("Triple point! at node", start_node)
 
+                        if start_node not in triple_nodes:
+                            print("Triple point! at node", start_node)
+                            triple_nodes.append(start_node)
+                        elif start_node not in quad_nodes:
+                            print("Quadruple point! at node", start_node)
+                            quad_nodes.append(start_node)
+                        else:
+                            print("More than quadruple point! at node", start_node)
+
+                    progress_data["duct_creation_history"].append((parent, start_node, iteration_count))
 
                     side_expanded, center_expanded = teb.expand_population()
                     new_teb1, new_teb2 = teb.split_population_into_two(side_expanded, center_expanded)
