@@ -34,73 +34,79 @@ def load_duct_systems(json_path):
 
     return duct_systems
 
+#
+# def create_duct_graph(duct_system):
+#     """
+#     Create a networkx graph from the given duct system.
+#
+#     Parameters
+#     ----------
+#     duct_system : dict
+#         Dictionary containing "branch_points" and "segments".
+#
+#     Returns
+#     -------
+#     nx.Graph
+#         A graph where nodes are branch points and edges are segments.
+#     """
+#     G = nx.Graph()
+#     bps = duct_system["branch_points"]
+#     segs = duct_system["segments"]
+#
+#     # Add nodes
+#     for bp_name in bps:
+#         G.add_node(bp_name, **bps[bp_name])
+#         # add their position as an attribute
+#         G.nodes[bp_name]["pos"] = (bps[bp_name]["x"], bps[bp_name]["y"], bps[bp_name]["z"])
+#
+#     # Add edges
+#     for seg_name, seg_data in segs.items():
+#         start_bp = seg_data["start_bp"]
+#         end_bp = seg_data["end_bp"]
+#         if start_bp not in G or end_bp not in G:
+#             warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
+#             continue
+#         G.add_edge(start_bp, end_bp, segment_name=seg_name)
+#
+#     return G
 
-def clean_duct_data(duct_system):
+def create_directed_duct_graph(duct_system):
     """
-    Clean and validate a single duct system data structure.
-    Renames inconsistent branch points and warns about unusual conditions.
+    Creates a directed graph with nodes for all branch_points,
+    and directed edges from start_bp -> end_bp for each segment.
 
-    Parameters
-    ----------
-    duct_system : dict
-        Dictionary with keys "branch_points" and "segments".
-
-    Returns
-    -------
-    dict
-        The cleaned and possibly corrected duct system.
+    If a segment references an undefined branch point, logs a warning
+    and skips that segment.
     """
-    branch_points = duct_system["branch_points"]
-    segments = duct_system["segments"]
+    G_dir = nx.DiGraph()
+    branch_points = duct_system.get("branch_points", {})
+    segments = duct_system.get("segments", {})
 
-    # Check for empty systems
-    if not branch_points:
-        warnings.warn("No branch points found in this duct system.")
-    if not segments:
-        warnings.warn("No segments found in this duct system.")
+    # Add all branch points as nodes with attributes
+    for bp_name, bp_data in branch_points.items():
+        G_dir.add_node(bp_name, **bp_data)
 
-    # Example: Warn if branch point names are not consistent
-    for bp_name in branch_points:
-        if not bp_name.startswith("bp") or not bp_name[2:].isdigit():
-            warnings.warn(f"Branch point '{bp_name}' does not follow the 'bp<number>' naming convention.")
-
-    # In a real scenario, you might rename or correct issues here.
-    # For now, just return the system unmodified.
-    return duct_system
-
-
-def create_duct_graph(duct_system):
-    """
-    Create a networkx graph from the given duct system.
-
-    Parameters
-    ----------
-    duct_system : dict
-        Dictionary containing "branch_points" and "segments".
-
-    Returns
-    -------
-    nx.Graph
-        A graph where nodes are branch points and edges are segments.
-    """
-    G = nx.Graph()
-    bps = duct_system["branch_points"]
-    segs = duct_system["segments"]
-
-    # Add nodes
-    for bp_name in bps:
-        G.add_node(bp_name, **bps[bp_name])
-
-    # Add edges
-    for seg_name, seg_data in segs.items():
+    # Add directed edges for valid segments
+    for seg_name, seg_data in segments.items():
         start_bp = seg_data["start_bp"]
         end_bp = seg_data["end_bp"]
-        if start_bp not in G or end_bp not in G:
+
+        if start_bp not in branch_points or end_bp not in branch_points:
             warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
             continue
-        G.add_edge(start_bp, end_bp, segment_name=seg_name)
 
-    return G
+        G_dir.add_edge(
+            start_bp,
+            end_bp,
+            segment_name=seg_name,
+            internal_points=seg_data.get('internal_points', []),
+            start_z=seg_data.get('start_z'),
+            end_z=seg_data.get('end_z'),
+            annotations=seg_data.get('annotations', []),
+            properties=seg_data.get('properties', {})
+        )
+
+    return G_dir
 
 
 
@@ -150,7 +156,6 @@ if __name__ == "__main__":
     for idx, system_data in duct_systems.items():
         # Clean initial data
         if len(system_data["segments"]) > 0:
-            system_data = clean_duct_data(system_data)
 
             # main branch node is the first branch point
             main_branch_node = list(system_data["branch_points"].keys())[0]

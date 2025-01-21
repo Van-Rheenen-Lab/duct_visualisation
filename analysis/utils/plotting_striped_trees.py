@@ -1,15 +1,8 @@
-import json
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from shapely.geometry import LineString, shape
-from shapely.ops import unary_union
-from rasterio.features import rasterize
-from skimage import io
+from shapely.geometry import LineString
 from matplotlib.colors import LinearSegmentedColormap, Normalize
-
-from utils.fixing_annotations import simplify_duct_system
-from utils.loading_saving import load_duct_systems, clean_duct_data, create_duct_graph
 
 def hierarchy_pos(G, root=None, vert_gap=0.2):
     if root is None:
@@ -267,85 +260,3 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
     plt.tight_layout()
 
     return fig, ax
-
-if __name__ == "__main__":
-    #
-    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-    # duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
-    #
-    # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-    # yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
-    # threshold_value = 500
-
-    red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
-    duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
-    json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
-    green_image_path = None
-    yellow_image_path = None
-    threshold_value = 500
-
-    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
-    # duct_borders_path =  r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
-    #
-    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0003.tif'
-    # yellow_image_path = None
-    # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0004.tif'
-    # threshold_value = 500
-
-    red_image = io.imread(red_image_path) if red_image_path else None
-    green_image = io.imread(green_image_path) if green_image_path else None
-    yellow_image = io.imread(yellow_image_path) if yellow_image_path else None
-
-    duct_systems = load_duct_systems(json_path)
-    system_idx = 0
-    duct_system = duct_systems[system_idx]
-
-    if len(duct_system["segments"]) > 0:
-        duct_system = clean_duct_data(duct_system)
-        main_branch_node = list(duct_system["branch_points"].keys())[0]
-        duct_system = simplify_duct_system(duct_system, main_branch_node)
-
-    G = create_duct_graph(duct_system)
-    start_node = None
-    if start_node is None:
-        # find the parent of the first branch point
-
-
-    valid_geoms = []
-    for feat in duct_borders['features']:
-        geom = shape(feat['geometry'])
-        if not geom.is_valid:
-            # Option 1: use buffer(0)
-            geom = geom.buffer(0)
-
-            # Option 2 (Shapely 2.0+): use make_valid(geom)
-            # geom = make_valid(geom)
-
-        if geom.is_valid:
-            valid_geoms.append(geom)
-        else:
-            print("Skipping geometry that could not be fixed:", feat['geometry'])
-
-    duct_polygon = unary_union(valid_geoms)
-    base_shape = red_image.shape
-    shapes = [(duct_polygon, 1)]
-    duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
-
-    plot_hierarchical_graph_subsegments(
-        G,
-        duct_system,
-        root_node=start_node,
-        duct_mask=duct_mask,
-        red_image=red_image,
-        green_image=green_image,
-        yellow_image=yellow_image,
-        threshold=threshold_value,
-        N=30,
-        use_hierarchy_pos=True,
-        vert_gap=5,
-        orthogonal_edges=True,
-        linewidth=1,
-        buffer_width=10
-    )
-    plt.show()

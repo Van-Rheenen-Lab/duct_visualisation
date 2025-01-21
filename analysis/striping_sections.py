@@ -1,54 +1,15 @@
 import json
 import numpy as np
-import networkx as nx
 from shapely.geometry import shape
 from shapely.ops import unary_union
 from rasterio.features import rasterize
 from skimage import io
 import matplotlib.pyplot as plt
 from shapely.validation import make_valid
-from analysis.utils.loading_saving import load_duct_systems, create_duct_graph
-from striping_speedup import (
-    load_duct_systems,
-    clean_duct_data,
-    simplify_duct_system,
-    plot_hierarchical_graph_subsegments
-)
-
-import networkx as nx
+from analysis.utils.loading_saving import load_duct_systems, clean_duct_data
+from analysis.utils.fixing_annotations import simplify_duct_system
+from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
 import warnings
-
-
-def create_directed_duct_graph(duct_system):
-    """
-    Creates a directed graph with nodes for all branch_points,
-    and directed edges from start_bp -> end_bp for each segment.
-
-    If a segment references an undefined branch point, logs a warning
-    and skips that segment.
-    """
-    G_dir = nx.DiGraph()
-    branch_points = duct_system.get("branch_points", {})
-    segments = duct_system.get("segments", {})
-
-    # Add all branch points as nodes with attributes
-    for bp_name, bp_data in branch_points.items():
-        G_dir.add_node(bp_name, **bp_data)
-
-    # Add directed edges for valid segments
-    for seg_name, seg_data in segments.items():
-        start_bp = seg_data["start_bp"]
-        end_bp = seg_data["end_bp"]
-
-        if start_bp not in branch_points or end_bp not in branch_points:
-            warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
-            continue
-
-        G_dir.add_edge(start_bp, end_bp, segment_name=seg_name)
-
-    return G_dir
-
-
 import networkx as nx
 from collections import deque
 
@@ -179,26 +140,26 @@ def plot_downstream_graph_subsegments(
     return fig, ax
 
 
-# json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-# duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
-#
-# green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-# yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-# red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+
+green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
 # threshold_value = 1000
 # selected_bp = 'bp330'
 # cut_nodes = ['bp336']
-# system_idx = 1
+system_idx = 1
 
-red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
-duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
-json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
-green_image_path = None
-yellow_image_path = None
-threshold_value = 500
+# red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
+# duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
+# json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
+# green_image_path = None
+# yellow_image_path = None
+threshold_value = 1000
 selected_bp = None
 cut_nodes = None
-system_idx = 0
+# system_idx = 0
 
 if __name__ == "__main__":
 
@@ -225,7 +186,7 @@ if __name__ == "__main__":
     for feat in duct_borders['features']:
         geom = shape(feat['geometry'])
         if not geom.is_valid:
-
+            geom_before = geom
             geom = make_valid(geom)
 
         if geom.is_valid:
@@ -238,25 +199,24 @@ if __name__ == "__main__":
     shapes = [(duct_polygon, 1)]
     duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
 
-    # plot_hierarchical_graph_subsegments(G,
-    #                                     duct_system,
-    #                                     root_node=selected_bp,
-    #                                     duct_mask=duct_mask,
-    #                                     red_image=red_image,
-    #                                     green_image=green_image,
-    #                                     yellow_image=yellow_image,
-    #                                     threshold=threshold_value,
-    #                                     N=30,
-    #                                     use_hierarchy_pos=True,
-    #                                     vert_gap=5,
-    #                                     orthogonal_edges=True,
-    #                                     linewidth=1,
-    #                                     buffer_width=10
-    # )
+    for poly in valid_geoms:
+        # 'buffer(0)' is often used to fix slight geometry issues.
+        # If poly is already valid, you could skip 'buffer(0)'.
+        poly_clean = poly.buffer(0)
+
+        # For a simple polygon:
+        x, y = poly_clean.exterior.xy
+        plt.plot(x, y, 'b-')  # 'b-' is a blue line
+
+        # If polygon has interior "holes", you can plot them too:
+        for ring in poly_clean.interiors:
+            ix, iy = ring.xy
+            plt.plot(ix, iy, 'r-')  # plot holes in red (for example)
+
 
     plot_downstream_graph_subsegments(
         duct_system=duct_system,
-        start_node=selected_bp,       # The specific branch node we want to start from
+        start_node=selected_bp,
         duct_mask=duct_mask,
         red_image=red_image,
         green_image=green_image,
@@ -269,11 +229,11 @@ if __name__ == "__main__":
         orthogonal_edges=True,
         linewidth=1,
         buffer_width=10,
-        cut_nodes=cut_nodes # pass in one or more nodes to snip
+        cut_nodes=cut_nodes
     )
 
     # save figure at high resolution
 
-    plt.savefig('3_colors_frombp330_cutbp336.png', dpi=300)
+    plt.savefig('28052024_2435322_L5_ecad_mAX-0006_duct.png', dpi=800)
 
     plt.show()
