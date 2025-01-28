@@ -1,6 +1,8 @@
 import random
 import networkx as nx
+import numpy as np
 
+import random
 
 class TEB:
     def __init__(self, side_cells=None, center_cells=None):
@@ -11,50 +13,65 @@ class TEB:
         return random.choice(self.side_cells)
 
     def expand_population(self):
-        """Doubles the TEB population, randomly flipping side <-> center for 70%."""
-        all_cells = []
-        for c in self.side_cells:
-            all_cells.append((c, 'side'))
-        for c in self.center_cells:
-            all_cells.append((c, 'center'))
+        """
+        Duplicates both side and center populations. Then, from the doubled side
+        cells, flips exactly ~70% to center (and keeps ~30% as side). Likewise,
+        from the doubled center cells, flips 70% to side (and 30% remain center).
 
-        expanded = all_cells + all_cells[:]  # doubled
+        Returns:
+            new_side, new_center (lists of clone IDs)
+        """
+
+        # Duplicate
+        all_side = self.side_cells + self.side_cells
+        all_center = self.center_cells + self.center_cells
+
+        # Shuffle so that the flips are random
+        random.shuffle(all_side)
+        random.shuffle(all_center)
+
         new_side, new_center = [], []
-        for (clone_id, old_pos) in expanded:
-            # Flip side <-> center with probability 0.70
-            flip = (random.random() < 0.70)
-            if old_pos == 'side':
-                if flip:
-                    new_center.append(clone_id)
-                else:
-                    new_side.append(clone_id)
-            else:
-                if flip:
-                    new_side.append(clone_id)
-                else:
-                    new_center.append(clone_id)
+
+        # Flip 70% of side -> center
+        side_flip_count = int(0.7 * len(all_side))
+        side_to_center = all_side[:side_flip_count]
+        side_to_remain_side = all_side[side_flip_count:]
+
+        # Flip 70% of center -> side
+        center_flip_count = int(0.7 * len(all_center))
+        center_to_side = all_center[:center_flip_count]
+        center_to_remain_center = all_center[center_flip_count:]
+
+        # Extend our new lists
+        new_side.extend(side_to_remain_side)   # the 30% that stay side
+        new_side.extend(center_to_side)        # the 70% that flip from center -> side
+        new_center.extend(side_to_center)      # the 70% that flip from side -> center
+        new_center.extend(center_to_remain_center)  # the 30% that stay center
+
+        assert len(new_side) == len(new_center)
+
         return new_side, new_center
 
-    def split_population_into_two(self, side_list, center_list):
-        """Randomly shuffle, then split the combined list into two equal groups."""
-        combined = [('side', c) for c in side_list] + [('center', c) for c in center_list]
-        random.shuffle(combined)
-        half = len(combined) // 2
-        group1 = combined[:half]
-        group2 = combined[half:]
 
-        side1, center1 = [], []
-        side2, center2 = [], []
-        for (pos, cid) in group1:
-            if pos == 'side':
-                side1.append(cid)
-            else:
-                center1.append(cid)
-        for (pos, cid) in group2:
-            if pos == 'side':
-                side2.append(cid)
-            else:
-                center2.append(cid)
+    def split_population_into_two(self, side_list, center_list):
+        """
+        Splits side_list and center_list independently into two equal halves.
+        Ensures side1 and side2 have the same length (and likewise for center).
+        """
+
+        # Shuffle side_list and split in half
+        random.shuffle(side_list)
+        half_side = len(side_list) // 2
+        side1 = side_list[:half_side]
+        side2 = side_list[half_side:]
+
+        # Shuffle center_list and split in half
+        random.shuffle(center_list)
+        half_center = len(center_list) // 2
+        center1 = center_list[:half_center]
+        center2 = center_list[half_center:]
+
+        # Create two new TEB objects
         return TEB(side1, center1), TEB(side2, center2)
 
 
@@ -132,7 +149,7 @@ def simulate_ductal_tree(
             G[parent][node_id]["duct_clones"] = []
         G[parent][node_id]["duct_clones"].extend(clones_list)
 
-        # Also add to 'deposited_clones_map' if your counting
+        # # Also add to 'deposited_clones_map' if your counting
         for cid in clones_list:
             deposited_clones_map[cid] = deposited_clones_map.get(cid, 0) + 1
 
@@ -145,9 +162,8 @@ def simulate_ductal_tree(
 
     triple_nodes = []
     quad_nodes = []
-
-
-
+    termination_side_count = []
+    missing_stem_cells = 0
     while active_ends:
         iteration_count += 1
 
@@ -233,6 +249,7 @@ def simulate_ductal_tree(
 
 
 
+
         for (start_node, teb, buffer_clones) in active_ends:
             # 1) First deposit any buffer clones into the "current duct" (parent->start_node).
             deposit_buffer_in_duct(G, start_node, buffer_clones)  # clears buffer_clones
@@ -242,17 +259,24 @@ def simulate_ductal_tree(
                 total_cells / max_cells
             )
 
-            if random.random() < bifurcation_prob:
-                # BIFURCATION
-                if random.random() < p_terminate:
-                    # deposit TEB's side/center clones in the "deposited map" so we don't lose them
-                    for c in teb.side_cells:
-                        deposited_clones_map[c] = deposited_clones_map.get(c, 0) + 1
-                    for c in teb.center_cells:
-                        deposited_clones_map[c] = deposited_clones_map.get(c, 0) + 1
 
-                    deposit_teb_in_duct(G, start_node, teb.side_cells + teb.center_cells)
-                    # append begin, end and iteration number to duct_creation_history
+
+            # # replace p_terminate with an initially quickly increasing probability of termination, with an asymptote at 0.6,
+            # # still related to the total number of cells.
+            # actually, we should either simulate on top of an existing ductal experimental tree, or model the spatial
+            # behavior like in
+
+            # if total_cells < max_cells/6:
+            #
+            #     p_terminate = initial_termination_prob * (total_cells / (max_cells / 6)) ** 0.5
+            # else:
+            #     p_terminate = 0.6
+
+            if random.random() < bifurcation_prob:
+
+                if random.random() < p_terminate:
+                    # TERMINATE
+                    termination_side_count.append(len(teb.side_cells))
 
                     parents = list(G.predecessors(start_node))
                     if parents:
@@ -260,22 +284,25 @@ def simulate_ductal_tree(
                     progress_data["duct_creation_history"].append((parent, start_node, iteration_count))
 
 
-
                     parent = list(G.predecessors(start_node))[0]
                     duct_clones = get_current_duct_clones(G, start_node)
                     if not duct_clones:
-                        # print(f"Duct {parent} to {start_node} has no duct clones, gets deleted.")
+                        # note that doing this basically removes the teb without depositing its clones. This is a bug.
+                        missing_stem_cells += len(teb.center_cells) + len(teb.side_cells)
                         # delete the current edge
                         G.remove_edge(parent, start_node)
 
+                    else:
+                        deposit_teb_in_duct(G, start_node, teb.side_cells + teb.center_cells)
+                        # append begin, end and iteration number to duct_creation_history
+
                 else:
                     # BRANCH
-                    # Check if we have any duct clones in current edge, if not, we make a n-junction, where multiple
-                    # branches are connected to the same parent node. This is not implemented yet.
                     parent = list(G.predecessors(start_node))[0]
                     duct_clones = G[parent][start_node].get("duct_clones", [])
                     if not duct_clones:
-                        # print(f"Duct {parent} to {start_node} has no duct clones, can't branch.")
+                        # note that doing this basically removes the teb without depositing its clones. This is a bug.
+                        missing_stem_cells += len(teb.center_cells) + len(teb.side_cells)
                         # delete the current edge
                         G.remove_edge(parent, start_node)
                         # set start_node to parent
@@ -292,6 +319,9 @@ def simulate_ductal_tree(
 
                     progress_data["duct_creation_history"].append((parent, start_node, iteration_count))
 
+                    deposit_teb_in_duct(G, start_node, teb.side_cells + teb.center_cells)
+
+                    # Expand and split TEB population
                     side_expanded, center_expanded = teb.expand_population()
                     new_teb1, new_teb2 = teb.split_population_into_two(side_expanded, center_expanded)
 
@@ -303,13 +333,14 @@ def simulate_ductal_tree(
                     child_node_2 = node_counter
                     G.add_node(child_node_2, description="branch")
 
-                    # Create new edges with empty clones
+                    # Create the new edges (children) with empty duct_clones
                     G.add_edge(start_node, child_node_1, duct_clones=[])
                     G.add_edge(start_node, child_node_2, duct_clones=[])
 
-                    # Now child TEBs start with no buffer
+                    # Now the TEBs continue on each child branch with no 'buffer_clones' yet
                     next_active_ends.append((child_node_1, new_teb1, []))
                     next_active_ends.append((child_node_2, new_teb2, []))
+
 
             else:
                 # ELONGATE
@@ -326,7 +357,16 @@ def simulate_ductal_tree(
         active_ends = next_active_ends
 
         if not active_ends:
-            print("No more active TEBs, stopping. Total cells:", sum(combined_map.values()))
+            print("No more active TEBs, stopping. Total cells:", sum(deposited_clones_map.values()))
+            print("Missing stem cells:", missing_stem_cells)
             break
+    #
+    # # plot histogram of termination side counts
+    # import matplotlib.pyplot as plt
+    # plt.hist(termination_side_count, bins=range(25, 75, 1))
+    # plt.xlabel("Number of side cells at termination")
+    # plt.ylabel("Frequency")
+    # plt.title("Histogram of side cell counts at termination")
+    # plt.show()
 
     return G, progress_data

@@ -1,4 +1,5 @@
 from analysis.utils.plotting_trees import plot_hierarchical_graph, create_annotation_color_map
+import matplotlib.pyplot as plt
 
 def plotting_ducts(G, vert_gap=2, color_map=None):
 
@@ -45,7 +46,7 @@ def plotting_ducts(G, vert_gap=2, color_map=None):
         use_hierarchy_pos=True,
         orthogonal_edges=True,
         vert_gap= vert_gap,
-        linewidth=1.5
+        linewidth=0.7
     )
 
     # 4) Calculate the average number of cells per segment
@@ -64,11 +65,6 @@ def plotting_ducts(G, vert_gap=2, color_map=None):
 
     print(f"Average number of cells per segment: {avg_cells}")
 
-import matplotlib.pyplot as plt
-from analysis.utils.plotting_trees import (
-    plot_hierarchical_graph,
-    create_annotation_color_map
-)
 
 def plot_selected_ducts(G, selected_ducts, vert_gap=2, color_map=None):
     """

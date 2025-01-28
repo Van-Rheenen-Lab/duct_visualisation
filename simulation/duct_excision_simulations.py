@@ -49,7 +49,7 @@ def gather_clone_fractions_for_selected_ducts(G, selected_ducts, n_clones=100):
 def main():
     random.seed(42)
 
-    n_clones = 400
+    n_clones = 100
 
     G_puberty, _ = simulate_ductal_tree(
         max_cells=300_000,
@@ -62,7 +62,7 @@ def main():
     G_adulthood, _ = simulate_adulthood(G_puberty_copy, rounds=33)
 
     # select duct 180 and all its predecessors, and its predecessors' predecessors etc
-    selected_ducts = [180]
+    selected_ducts = [140]
     while True:
         parents = list(G_puberty.predecessors(selected_ducts[0]))
         if not parents:

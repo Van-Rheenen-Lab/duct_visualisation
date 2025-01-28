@@ -10,11 +10,11 @@ def run_sim_and_plot():
 
     # 1) Run simulation
     G, progress_data = simulate_ductal_tree(
-        max_cells=9_000_000,
+        max_cells=5_000_000,
         bifurcation_prob=0.01,
         initial_side_count=50,
         initial_center_count=50,
-        initial_termination_prob=0.3
+        initial_termination_prob=0.2
     )
 
 

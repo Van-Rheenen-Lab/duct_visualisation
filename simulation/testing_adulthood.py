@@ -48,13 +48,14 @@ def plot_stack_counts_with_fixed_ids(iterations, dist_series, all_ids, title, co
     plt.tight_layout()
 
 random.seed(42)
+n_clones = 170
 
 # 1) Run puberty simulation
 G, progress_data_puberty = simulate_ductal_tree(
-    max_cells=2_000_000,
+    max_cells=5_000_000,
     bifurcation_prob=0.01,
-    initial_side_count=50,
-    initial_center_count=50,
+    initial_side_count=n_clones/2,
+    initial_center_count=n_clones/2,
     initial_termination_prob=0.2
 )
 
@@ -154,14 +155,6 @@ plt.title("Active TEBs Over Time")
 plt.legend()
 plt.tight_layout()
 
-# plot_stack_counts_with_fixed_ids(
-#     iterations=adult_iters,
-#     dist_series=adult_adult_dists,
-#     all_ids=all_adult_ids,
-#     title="Adult Phase (Adult IDs)",
-#     color_map=None  # or build a new color map
-# )
-
 # calculate the average number of stem cells per unique adult ID
 avg_stem_cells = []
 for dist_dict in adult_adult_dists:
@@ -186,14 +179,5 @@ plt.plot(adult_iters, average_clones_per_duct, label="Average Unique Clones IDs 
 plt.xlabel("Iteration")
 plt.ylabel("Average Clones per Duct")
 plt.title("Average Unique Pubertal IDs per Duct Over Time")
-
-# now individual ducts
-plt.figure(figsize=(8, 5))
-ducts = list(unique_clones_per_duct[0].keys())
-for duct in ducts:
-    duct_data = [d[duct] for d in unique_clones_per_duct]
-    plt.plot(adult_iters, duct_data, label=f"Duct {duct}")
-plt.xlabel("Iteration")
-plt.ylabel("Unique Clones")
 
 plt.show()

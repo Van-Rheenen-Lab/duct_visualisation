@@ -24,7 +24,7 @@ def simulate_adulthood(G, rounds=33, progress_data=None):
             continue
 
         # Pick 10% (at least 1)
-        num_keep = max(1, int(np.mean(0.1 * len(pubertal_list))))
+        num_keep = max(1, int(np.round(0.1 * len(pubertal_list))))
         chosen_indices = random.sample(range(len(pubertal_list)), k=num_keep)
         chosen_indices = set(chosen_indices)
 
@@ -37,7 +37,7 @@ def simulate_adulthood(G, rounds=33, progress_data=None):
 
         edata["adult_cells"] = new_cells
         edata["duct_clones"] = []  # discard the original puberty clones
-
+    print(f"Total adult stem cells: {global_adult_id_counter}")
     # -------------------------------------------------------------------------
     # Helper to record progress (adult & pubertal ID distributions)
     # and also track the number of unique clones per duct.
