@@ -1,28 +1,23 @@
 import networkx as nx
 from collections import deque
 import numpy as np
-import warnings
-from shapely.geometry import LineString
 import matplotlib.pyplot as plt
-from shapely.geometry import shape
-from rasterio.features import rasterize
-from shapely.validation import make_valid
+import matplotlib as mpl
+
+from shapely.geometry import LineString, shape
 from shapely.ops import unary_union
+from shapely.validation import make_valid
+from rasterio.features import rasterize
 import json
 
-########################################################
-# Original BFS code remains the same
-########################################################
 
 def compute_bfs_levels(G_dir, root_node):
     """
-    Returns a dict: {node: level}, where `level` is the BFS distance from `root_node`.
-    Assumes G_dir is a DiGraph and there's exactly one path from root to each node.
+    Returns a dict: {node: level}, BFS distance from `root_node`.
+    Assumes G_dir is a DiGraph.
     """
     if root_node not in G_dir:
-        raise ValueError(f"Root node {root_node} is not in the graph.")
-
-    from collections import deque
+        raise ValueError(f"Root node {root_node} not in the graph.")
     levels = {}
     queue = deque([(root_node, 0)])
     visited = set()
@@ -40,26 +35,29 @@ def compute_bfs_levels(G_dir, root_node):
 
     return levels
 
-
 def segments_by_level(G_dir, levels):
     """
-    Returns a dict: {level: [segment_names]}.
-    Each segment is classified by the BFS level of its end node.
+    Returns a dict {level: [segment_names]}
+    Each edge is grouped by BFS level of its end node.
     """
     level_dict = {}
     for u, v in G_dir.edges():
         seg_name = G_dir[u][v].get('segment_name', None)
         if seg_name is None:
             continue
-        end_level = levels[v]  # BFS level of the child node
+        end_level = levels[v]
         level_dict.setdefault(end_level, []).append(seg_name)
     return level_dict
 
-
 def get_line_for_segment(duct_system, segment_name):
     """
-    Re-use your existing logic or import from your code.
-    Returns a LineString for the specified segment.
+    Return a LineString for the given segment.
+    Example logic that assumes:
+      duct_system['segments'][segment_name] = {
+        'start_bp': <bp_key>, 'end_bp': <bp_key>,
+        'internal_points': [ {x:..., y:...}, ... ]
+      }
+      duct_system['branch_points'][bp_key] = { x:..., y:... }
     """
     segments = duct_system['segments']
     branch_points = duct_system['branch_points']
@@ -75,268 +73,297 @@ def get_line_for_segment(duct_system, segment_name):
     return LineString(pts)
 
 ########################################################
-# Updated pixel / multi-channel code
+# 2) Corridor-based Pixel Extraction
 ########################################################
-def pixels_for_segment_multi(line, duct_mask, images, threshold=1000, buffer_width=5):
-    minx, miny, maxx, maxy = line.bounds
-    height, width = duct_mask.shape
+def pixels_for_segment_multi_corridor(
+    segment_line,
+    duct_polygon,
+    images,
+    threshold=1000,
+    buffer_dist=5.0,
+    out_shape=None
+):
+    """
+    Build a corridor by buffering segment_line in real coordinates.
+    Intersect with duct_polygon, rasterize the corridor.
+    Return:
+      all_pixels: set of (row, col)
+      channel_positive: {channel_idx -> set of (row, col)} above threshold.
 
-    minx = max(int(minx - buffer_width), 0)
-    miny = max(int(miny - buffer_width), 0)
-    maxx = min(int(maxx + buffer_width), width - 1)
-    maxy = min(int(maxy + buffer_width), height - 1)
+    If everything is empty, returns empty sets.
+    """
+    # 1) Buffer the line
+    corridor_polygon = segment_line.buffer(buffer_dist)
 
-    sub_mask = duct_mask[miny:maxy+1, minx:maxx+1]
-    ys, xs = np.where(sub_mask == 1)
-    if len(xs) == 0:
-        # Return *empty* sets for *all* channels
+    # 2) Intersect with duct
+    corridor_polygon = corridor_polygon.intersection(duct_polygon)
+    if corridor_polygon.is_empty:
         return set(), {i: set() for i in range(len(images))}
 
-    # Shift back to full image coords
-    xs += minx
-    ys += miny
+    # 3) Rasterize corridor
+    corridor_mask = rasterize(
+        [(corridor_polygon, 1)],
+        out_shape=out_shape,
+        fill=0,
+        dtype=np.uint8,
+        all_touched=True  # or False, as you prefer
+    )
+    ys, xs = np.where(corridor_mask == 1)
+    if len(xs) == 0:
+        return set(), {i: set() for i in range(len(images))}
+
     all_pixels = set(zip(ys, xs))
 
-    # Build a dictionary for each channel
+    # 4) Check each channel’s intensity for threshold
     channel_positive = {}
     for i, img in enumerate(images):
         if img is None:
-            # This channel is missing => empty set
             channel_positive[i] = set()
-        else:
-            # Filter the pixels that are above threshold
-            pos_pix = set()
-            for (row, col) in all_pixels:
-                if img[row, col] > threshold:
-                    pos_pix.add((row, col))
-            channel_positive[i] = pos_pix
+            continue
+        pos_pix = set()
+        for (row, col) in all_pixels:
+            if img[row, col] > threshold:
+                pos_pix.add((row, col))
+        channel_positive[i] = pos_pix
 
     return all_pixels, channel_positive
 
+########################################################
+# 3) Multi-channel BFS with corridor-based pixels
+########################################################
+from shapely.ops import unary_union
+from shapely.geometry import LineString
 import numpy as np
+import rasterio.features
 
-def get_segment_pixels(line, duct_mask, buffer_width=5):
+import numpy as np
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+import rasterio.features
+
+
+def analyze_area_vs_branch_level_multi_corridor(
+        duct_system,
+        G_dir,
+        root_node,
+        duct_polygon,
+        images,
+        threshold=1000,
+        buffer_dist=5.0
+):
     """
-    Return the set of (y, x) pixels in duct_mask that lie
-    in the bounding box of 'line' with a small buffer.
-    (No threshold logic; just the polygon mask.)
+    Optimized BFS corridor analysis that:
+      - Groups segments by BFS level.
+      - Unions all corridor polygons at BFS level i => single geometry.
+      - Maintains a cumulative corridor polygon (P_i) as we go from 1..max_level.
+      - For each new pixel discovered at BFS level i, sets pixel_levels[y,x] = i.
+
+    Returns:
+      area_by_level: list of cumulative duct area up to BFS level i, for i=0..max_level
+      positives_by_level: {channel_idx -> [cumulative positives], 0..max_level}
+      pixel_levels: 2D np.uint16 array, same shape as images, where:
+         pixel_levels[y, x] = BFS level that first included that pixel
+         0 => not included by any BFS level
     """
-    minx, miny, maxx, maxy = line.bounds
-    height, width = duct_mask.shape
-
-    minx = max(int(minx - buffer_width), 0)
-    miny = max(int(miny - buffer_width), 0)
-    maxx = min(int(maxx + buffer_width), width - 1)
-    maxy = min(int(maxy + buffer_width), height - 1)
-
-    sub_mask = duct_mask[miny:maxy+1, minx:maxx+1]
-    ys, xs = np.where(sub_mask == 1)
-    if len(xs) == 0:
-        return set()
-
-    xs += minx
-    ys += miny
-    return set(zip(ys, xs))
-
-def compute_pixel_levels(duct_system, G_dir, root_node, duct_mask, buffer_width=5):
-    """
-    Build an integer array 'pixel_levels' the same shape as duct_mask,
-    where pixel_levels[y, x] = BFS level of that pixel (or 0 if not yet assigned).
-    """
-    # BFS levels => {node: level}
+    # 1) Basic BFS
     levels = compute_bfs_levels(G_dir, root_node)
     if not levels:
-        raise ValueError("No BFS levels found; check your graph.")
+        return [], {}, None
 
     max_level = max(levels.values())
-    # Segments by BFS level => {level: [segment_names]}
     level_dict = segments_by_level(G_dir, levels)
 
-    pixel_levels = np.zeros_like(duct_mask, dtype=np.uint16)
+    # 2) Output structures
+    area_by_level = [0]  # BFS level 0 => 0 area
+    num_channels = len(images)
+    positives_by_level = {ch: [0] for ch in range(num_channels)}
 
-    # For BFS levels 1..max_level, fill in pixel_levels
+    # We'll create a BFS-level map for all pixels
+    #   shape = out_shape from the first non-None image
+    out_shape = None
+    for img in images:
+        if img is not None:
+            out_shape = img.shape
+            break
+    if out_shape is None:
+        raise ValueError("No valid image for out_shape.")
+
+    pixel_levels = np.zeros(out_shape, dtype=np.uint16)
+
+    # 3) Maintain a cumulative corridor polygon across levels
+    cumulative_polygon = Polygon()  # empty
+    # Also track sets for BFS-level accumulation
+    cumulative_pixels = set()
+    channel_cumulative = {ch: set() for ch in range(num_channels)}
+
+    # A helper to rasterize a polygon once
+    def rasterize_polygon(poly):
+        return rasterio.features.rasterize(
+            [(poly, 1)],
+            out_shape=out_shape,
+            fill=0,
+            dtype=np.uint8,
+            all_touched=True
+        )
+
     for lvl in range(1, max_level + 1):
         seg_names = level_dict.get(lvl, [])
+        if not seg_names:
+            # No segments => no new area, just duplicate
+            area_by_level.append(len(cumulative_pixels))
+            for ch in range(num_channels):
+                positives_by_level[ch].append(len(channel_cumulative[ch]))
+            continue
+
+        # 3a) Build corridor union for BFS level i
+        corridors_this_level = []
         for seg_name in seg_names:
             line = get_line_for_segment(duct_system, seg_name)
-            all_pixels = get_segment_pixels(line, duct_mask, buffer_width)
-            # Label these pixels if not already labeled
-            for (row, col) in all_pixels:
-                if pixel_levels[row, col] == 0:
-                    pixel_levels[row, col] = lvl
+            buff = line.buffer(buffer_dist)
+            corridor_polygon = buff.intersection(duct_polygon)
+            if not corridor_polygon.is_empty:
+                corridors_this_level.append(corridor_polygon)
 
-    return pixel_levels, max_level
+        if corridors_this_level:
+            level_union_polygon = unary_union(corridors_this_level)
+        else:
+            level_union_polygon = Polygon()  # empty
+
+        # 3b) Union with existing cumulative corridor
+        new_cumulative = unary_union([cumulative_polygon, level_union_polygon])
+        if new_cumulative.equals(cumulative_polygon):
+            # No change
+            area_by_level.append(len(cumulative_pixels))
+            for ch in range(num_channels):
+                positives_by_level[ch].append(len(channel_cumulative[ch]))
+            continue
+
+        # 3c) Instead of re-rasterizing both polygons, compute the difference polygon
+        #     to identify "newly added" region. Then we can rasterize that difference.
+        difference_polygon = new_cumulative.difference(cumulative_polygon)
+        # Rasterize only newly added area
+        diff_mask = rasterize_polygon(difference_polygon)
+
+        # new pixels
+        ys, xs = np.where(diff_mask == 1)
+        new_pix = set(zip(ys, xs))
+
+        # Assign BFS level to these new pixels in pixel_levels,
+        # but only if pixel_levels[y,x] == 0 (i.e., they were not set yet).
+        for (row, col) in new_pix:
+            if pixel_levels[row, col] == 0:
+                pixel_levels[row, col] = lvl
+
+        # Update the global sets
+        cumulative_pixels.update(new_pix)
+        for ch in range(num_channels):
+            if images[ch] is None:
+                continue
+            img = images[ch]
+            above_thresh = []
+            for (row, col) in new_pix:
+                if img[row, col] > threshold:
+                    above_thresh.append((row, col))
+            channel_cumulative[ch].update(above_thresh)
+
+        # Update the polygon
+        cumulative_polygon = new_cumulative
+
+        # 3d) Record BFS i
+        area_by_level.append(len(cumulative_pixels))
+        for ch in range(num_channels):
+            positives_by_level[ch].append(len(channel_cumulative[ch]))
+
+    return area_by_level, positives_by_level, pixel_levels
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 def plot_pixel_levels(pixel_levels, max_level):
     """
-    pixel_levels: 2D np.array of shape = duct_mask.shape
-    max_level: highest BFS level
-
-    Plots a discrete color-coded map of BFS levels.
+    pixel_levels: 2D array of BFS levels (0..max_level)
+    any 0 => not assigned
     """
-    # Create a color list for 0..max_level
-    # 0 => black, then 1..max_level => a colormap like 'viridis' or any you like.
-    color_list = ['black']
-    cmap_viridis = plt.cm.get_cmap('viridis', max_level)  # discrete slices
+    # Build a discrete set of colors:
+    # level 0 => black, level 1..max_level => some colormap slices
+    color_list = ["black"]
+    cmap_viridis = plt.cm.get_cmap("viridis", max_level)  # or any named colormap
     for i in range(max_level):
+        # i goes 0..(max_level-1); shift by +1 to pick BFS level color
         color_list.append(mpl.colors.rgb2hex(cmap_viridis(i)))
 
-    # Or use e.g. plt.cm.tab10 or any multi‐color map for BFS levels
-    cmap = mpl.colors.ListedColormap(color_list)
+    discrete_cmap = mpl.colors.ListedColormap(color_list)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-    cax = ax.imshow(pixel_levels, cmap=cmap, vmin=0, vmax=max_level)
+    fig, ax = plt.subplots(figsize=(8,6))
+    cax = ax.imshow(pixel_levels, cmap=discrete_cmap, vmin=0, vmax=max_level)
     ax.set_title("Pixel BFS Level Map")
-    ax.axis('off')
+    ax.axis("off")
 
-    # Colorbar with discrete ticks
-    cbar = plt.colorbar(cax, ticks=range(max_level + 1))
-    cbar.ax.set_yticklabels([str(i) for i in range(max_level + 1)])
+    # Colorbar
+    ticks = range(max_level+1)  # 0..max_level
+    cbar = plt.colorbar(cax, ticks=ticks)
+    cbar.ax.set_yticklabels([str(i) for i in ticks])
     cbar.set_label("BFS Level")
     plt.tight_layout()
     plt.show()
 
 
-def analyze_area_vs_branch_level_multi(duct_system, G_dir, root_node, duct_mask,
-                                       images, threshold=1000, buffer_width=5):
-    """
-    For each BFS level i, compute the cumulative duct area and the cumulative above-threshold area
-    in each of the provided images.
-
-    images: list of up to 3 images (red, green, yellow), but any can be None.
-    threshold: intensity threshold.
-
-    Returns:
-      area_by_level: A list of total duct area up to each BFS level i (1-based index)
-      positives_by_level: A dict of {channel_idx -> [list of cumulative positive area]}
-        Each list is the same length as area_by_level.
-    """
-    # BFS
-    levels = compute_bfs_levels(G_dir, root_node)
-    max_level = max(levels.values()) if levels else 0
-
-    # Group segments by BFS level of their end node
-    level_dict = segments_by_level(G_dir, levels)
-
-    # We track a global set of duct pixels (cumulative) and a global set for each channel.
-    cumulative_pixels = set()
-    channel_cumulative = {i: set() for i in range(len(images))}
-
-    # We'll store area for BFS levels 0..max_level in a list
-    area_by_level = [0]  # area_by_level[i] for BFS level i, i from 1..max_level
-    positives_by_level = {i: [0] for i in range(len(images))}
-
-    for level in range(1, max_level+1):
-        seg_names = level_dict.get(level, [])
-        for seg_name in seg_names:
-            line = get_line_for_segment(duct_system, seg_name)
-            all_pix, channel_pos = pixels_for_segment_multi(
-                line, duct_mask, images, threshold, buffer_width=buffer_width
-            )
-
-            # Update the global sets
-            cumulative_pixels.update(all_pix)
-            for i in range(len(images)):
-                channel_cumulative[i].update(channel_pos[i])
-
-        # Record the cumulative area at this level
-        area_by_level.append(len(cumulative_pixels))
-
-        # Record each channel's cumulative positives
-        for i in range(len(images)):
-            positives_by_level[i].append(len(channel_cumulative[i]))
-
-    return area_by_level, positives_by_level
-
-
+########################################################
+# 4) Stack Plot for Multi-channel BFS
+########################################################
 def plot_area_vs_branch_level_multi_stack(area_by_level, positives_by_level,
                                           channel_labels=None, use_log=False):
     """
-    Produce a stack plot by BFS level:
-      - "Negative" portion at each level
-      - Each channel's positive portion stacked above
+    Produce a stack plot of BFS-level-based cumulative area, where:
+      - Row 0 = Negative area
+      - Row i = channel i's positives (stacked above)
+    Overlapping pixels in multiple channels are double-counted in the stack.
 
-    WARNING: This is a naive approach. If pixels are positive in multiple
-    channels, they get counted multiple times in the stacked region.
+    area_by_level: list of total duct area (index = BFS level, 0..N)
+    positives_by_level: {channel_idx -> [cumulative positives], length matches area_by_level}
     """
     if channel_labels is None:
-        # Default channel labels
-        channel_labels = [f"Channel {i}"
-                          for i in sorted(positives_by_level.keys())]
+        channel_labels = [f"Channel {i}" for i in sorted(positives_by_level.keys())]
 
-    # BFS levels are 0..(len(area_by_level)-1)
-    xvals = range(len(area_by_level))
+    xvals = range(len(area_by_level))  # BFS levels from 0..(len-1)
 
-    # 1) Sum each channel’s positives by BFS level
-    #    positives_by_level is {channel_idx -> [list of positive area counts]}
+    # Sum each channel's positives
     sum_of_positives = []
+    sorted_channels = sorted(positives_by_level.keys())
+
     for lvl in xvals:
         total_pos = 0
-        for chan_idx in positives_by_level:
-            total_pos += positives_by_level[chan_idx][lvl]
+        for ci in sorted_channels:
+            total_pos += positives_by_level[ci][lvl]
         sum_of_positives.append(total_pos)
 
-    # 2) Negative portion = total duct area - sum_of_positives
+    # Negative portion = total duct area - sum_of_positives
     negative = []
-    for lvl, total_area in enumerate(area_by_level):
-        val = total_area - sum_of_positives[lvl]
+    for lvl_idx, total_area in enumerate(area_by_level):
+        val = total_area - sum_of_positives[lvl_idx]
         if val < 0:
-            # If overlap pushes sum_of_positives above total area,
-            # clamp negative portion to zero just so it doesn't go negative.
-            val = 0
+            val = 0  # clamp to zero if overlap is greater than total
         negative.append(val)
 
-    # 3) Build data series for stackplot:
-    #    - first row = negative
-    #    - subsequent rows = each channel's positives
-    #    We'll keep channel order sorted by channel index
-    stacked_data = []
-    sorted_chan_idxs = sorted(positives_by_level.keys())
-
-    for ci in sorted_chan_idxs:
+    # Build data series for stackplot
+    stacked_data = [negative]
+    for ci in sorted_channels:
         stacked_data.append(positives_by_level[ci])
 
-    stacked_data.append(negative)
+    labels = ["Negative"] + [channel_labels[ci] for ci in sorted_channels]
 
-    # 4) Build labels array
-    labels = [channel_labels[i] for i in sorted_chan_idxs] + ["Negative"]
+    # pick some colors
+    colors = ["#000000", "red", "green", "yellow"]
 
-    # 5) Plot
     fig, ax = plt.subplots(figsize=(8, 6))
     if use_log:
-        ax.set_yscale("log")
+        ax.set_yscale('log')
 
-    colors = ["red", "green", "yellow"]
-
-    ax.stackplot(xvals, *stacked_data, labels=labels,
-                 colors= colors + ["#000000"]
-    )
+    ax.stackplot(xvals, *stacked_data, labels=labels, colors=colors[:len(labels)])
     ax.set_xlabel("Branch Level")
     ax.set_ylabel("Cumulative Area (pixels)")
     ax.set_title("Stacked Cumulative Area vs. Branch Level")
-    ax.legend(loc="upper left")
-    plt.tight_layout()
-
-    # Also show fraction
-    fig2, ax2 = plt.subplots(figsize=(8,6))
-    for i, (chan_idx, pos_list) in enumerate(positives_by_level.items()):
-        c = colors[i % len(colors)]
-        # compute fraction of total for BFS levels > 0
-        fraction = []
-        for lvl_idx in range(1, len(area_by_level)):
-            area_val = area_by_level[lvl_idx]
-            pos_val = pos_list[lvl_idx]
-            frac = (pos_val / area_val) if area_val > 0 else 0
-            fraction.append(frac)
-        ax2.plot(range(1, len(area_by_level)), fraction, label=channel_labels[chan_idx], color=c)
-
-    ax2.set_xlabel('Branch Level')
-    ax2.set_ylabel('Fraction of total area')
-    ax2.set_title('Positive Area Fraction vs. Branch Level')
-    ax2.legend()
+    ax.legend(loc="best")
     plt.tight_layout()
     plt.show()
 
@@ -363,7 +390,7 @@ if __name__ == "__main__":
     # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0001.tif'
     # system_idx = 2
     # threshold_value = 1000
-
+    #
     # json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\annotations 7324-1.json"
     # duct_borders_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\01062024_7324_L5_sma_max.lif - TileScan 1 Merged_Processed001_forbranchanalysis.geojson"
     #
@@ -430,15 +457,24 @@ if __name__ == "__main__":
     shapes = [(duct_polygon, 1)]
     duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
 
-    # Analyze all channels
-    area_by_lvl, positives_by_lvl = analyze_area_vs_branch_level_multi(
-        duct_system, G_dir, root_node, duct_mask,
-        images=images, threshold=threshold_value, buffer_width=5
-    )
-    pixel_levels, max_level = compute_pixel_levels(
-        duct_system, G_dir, root_node, duct_mask, buffer_width=5
-    )
-    plot_pixel_levels(pixel_levels, max_level)
 
-    # Plot results
-    plot_area_vs_branch_level_multi_stack(area_by_lvl, positives_by_lvl, channel_labels, use_log=False)
+    area_by_lvl, positives_by_lvl, pixel_levels = analyze_area_vs_branch_level_multi_corridor(
+        duct_system=duct_system,
+        G_dir=G_dir,
+        root_node=root_node,
+        duct_polygon=duct_polygon,
+        images=images,
+        threshold=500,
+        buffer_dist=5.0
+    )
+
+    # Then do your stack plot
+    plot_area_vs_branch_level_multi_stack(
+        area_by_lvl, positives_by_lvl,
+        channel_labels=["Red", "Green", "Yellow"],
+        use_log=False
+    )
+
+    # Finally, color-code BFS levels
+    max_level = len(area_by_lvl) - 1
+    plot_pixel_levels(pixel_levels, max_level)
