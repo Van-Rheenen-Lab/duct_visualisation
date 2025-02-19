@@ -1,0 +1,1 @@
+from analysis.ext_fig_1_cumulative_area import calculate_cumulative_area

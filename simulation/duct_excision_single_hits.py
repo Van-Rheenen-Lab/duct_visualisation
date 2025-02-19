@@ -73,12 +73,12 @@ def main():
     num_reps = 12
 
     # Settings for puberty simulation
-    n_clones = 100
-    max_cells = 200_000
+    n_clones = 170
+    max_cells = 3_000_000
     bifurcation_prob = 0.01
     initial_side_count = n_clones / 2
     initial_center_count = n_clones / 2
-    initial_termination_prob = 0.1
+    initial_termination_prob = 0.25
 
     # Collect the ratio DataFrames for each replicate
     list_of_dfs = []

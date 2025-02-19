@@ -12,9 +12,6 @@ from shapely.validation import make_valid
 from rasterio.features import rasterize
 
 
-###############################################################################
-# 1) Basic Graph + BFS Helpers
-###############################################################################
 def compute_bfs_levels(G_dir, root_node):
     """
     Returns a dict {node: level} indicating the BFS distance from `root_node`.
@@ -74,10 +71,6 @@ def get_line_for_segment(duct_system, segment_name):
 
     return LineString(pts)
 
-
-###############################################################################
-# 2) Corridor-based Pixel Extraction (Optional standalone function)
-###############################################################################
 def pixels_for_segment_multi_corridor(
     segment_line,
     duct_polygon,
@@ -291,7 +284,8 @@ def plot_pixel_levels(pixel_levels, max_level):
     # Colorbar
     ticks = range(max_level + 1)  # 0..max_level
     cbar = plt.colorbar(cax, ticks=ticks)
-    cbar.ax.set_yticklabels([str(i) for i in ticks])
+    # only give every 10 tick
+    cbar.set_ticks(ticks[::10])
     cbar.set_label("Branch Level")
     plt.tight_layout()
 
@@ -331,11 +325,26 @@ def plot_area_vs_branch_level_multi_stack(
     for ch in sorted_channels:
         stacked_data.append(positives_by_level[ch])
 
-    stacked_data.append(negative)
+    # stacked_data.append(negative)
 
-    labels = [channel_labels[ch] for ch in sorted_channels] + ["Negative"]
+    labels = [channel_labels[ch] for ch in sorted_channels] # + ["Negative"]
 
-    colors = ["red", "green", "yellow", "#000000"]
+    # print percentage combined red, green and yellow
+    # yellow
+    yellow = positives_by_level[2]
+    green = positives_by_level[1]
+    red = positives_by_level[0]
+    print(f"Percentage of yellow pixels: {yellow[-1] / area_by_level[-1] * 100:.2f}%")
+    print(f"Percentage of green pixels: {green[-1] / area_by_level[-1] * 100:.2f}%")
+    print(f"Percentage of red pixels: {red[-1] / area_by_level[-1] * 100:.2f}%")
+    print(f"Percentage of positive pixels: {(red[-1] + yellow[-1] + green[-1]) / area_by_level[-1] * 100:.2f}%")
+    # normalise data to area_by_level[-1]
+
+    for i in range(len(stacked_data)):
+        stacked_data[i] = [x / area_by_level[-1] for x in stacked_data[i]]
+
+
+    colors = ["red", "green", "yellow"]
 
     fig, ax = plt.subplots(figsize=(8, 6))
     if use_log:
@@ -360,6 +369,7 @@ def plot_area_vs_branch_level_multi_stack(
 ###############################################################################
 if __name__ == "__main__":
     from shapely.validation import make_valid
+    from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph
 
 
     json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
@@ -368,7 +378,7 @@ if __name__ == "__main__":
     green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
     yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
     red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
-    threshold_value = 1000
+    threshold_value = 400
     system_idx = 1
 
     ## BhomPhet
@@ -400,9 +410,6 @@ if __name__ == "__main__":
     # system_idx = 1
     # threshold_value = 1000
 
-
-
-    # Safe loading
     def safe_read(path):
         return io.imread(path) if path else None
 
@@ -411,25 +418,6 @@ if __name__ == "__main__":
     yellow_image = safe_read(yellow_image_path)
     images = [red_image, green_image, yellow_image]
     channel_labels = ["Red", "Green", "Yellow"]
-
-    # -------------------------------------------------------
-    # Load the duct systems from JSON (stub function)
-    # Replace with your real function that returns a list of duct systems
-    def load_duct_systems(json_file):
-        # E.g., you have a function that returns list of systems
-        with open(json_file, 'r') as f:
-            all_systems = json.load(f)
-        return all_systems["duct_systems"]
-
-    # Example: create a directed graph from the duct system
-    def create_directed_duct_graph(duct_system):
-        G = nx.DiGraph()
-        for seg_name, seg_data in duct_system['segments'].items():
-            start_bp = seg_data['start_bp']
-            end_bp = seg_data['end_bp']
-            # Add edge, store segment_name
-            G.add_edge(start_bp, end_bp, segment_name=seg_name)
-        return G
 
     # -------------------------------------------------------
     # Load data
@@ -477,8 +465,16 @@ if __name__ == "__main__":
         use_log=False
     )
 
+    # save the plot at 300 dpi
+    plt.savefig("stacked_plot.png", dpi=300)
+
+
+
     # Show BFS level assignment
     max_level = len(area_by_lvl) - 1
     plot_pixel_levels(pixel_levels, max_level)
+
+    # Also save the pixel levels plot
+    plt.savefig("pixel_levels.png", dpi=600)
     plt.show()
     print("Analysis complete!")

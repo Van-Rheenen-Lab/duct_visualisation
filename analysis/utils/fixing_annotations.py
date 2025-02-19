@@ -1,5 +1,5 @@
 import networkx as nx
-from .loading_saving import create_directed_duct_graph
+from analysis.utils.loading_saving import create_directed_duct_graph
 import warnings
 
 def simplify_duct_system(duct_system, main_branch_node):

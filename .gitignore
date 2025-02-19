@@ -12,9 +12,12 @@ build/
 develop-eggs/
 dist/
 downloads/
+simulation/frames/
 eggs/
 .eggs/
 .idea
+.PNG
+.png
 lib/
 lib64/
 parts/

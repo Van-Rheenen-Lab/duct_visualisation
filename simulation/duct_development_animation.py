@@ -13,7 +13,7 @@ from analysis.utils.plotting_trees import (
 )
 
 def create_duct_growth_gif_with_annotations(
-        max_cells=500_000,
+        max_cells=2_000_000,
         bifurcation_prob=0.01,
         initial_side_count=50,
         initial_center_count=50,
@@ -67,31 +67,6 @@ def create_duct_growth_gif_with_annotations(
         # Build `system_data` for this snapshot
         system_data = {"segments": {}}
 
-        for (u, v) in G_snap.edges():
-            seg_name = f"duct_{u}_to_{v}"
-            duct_clones = G_snap[u][v].get("duct_clones", [])
-
-            # Example logic for annotation
-            annotation = None
-            if 42 in duct_clones:
-                annotation = "42"
-            elif 12 in duct_clones:
-                annotation = "12"
-            elif 24 in duct_clones:
-                annotation = "24"
-            elif 84 in duct_clones:
-                annotation = "84"
-
-
-            if annotation:
-                system_data["segments"][seg_name] = {
-                    "properties": {"Annotation": annotation}
-                }
-            else:
-                system_data["segments"][seg_name] = {
-                    "properties": {}
-                }
-
         # Create color map
         annotation_map = create_annotation_color_map(system_data, fixed_annotation=None)
 
@@ -101,10 +76,10 @@ def create_duct_growth_gif_with_annotations(
             system_data=system_data,
             root_node=0,           # if 0 is guaranteed to exist
             use_hierarchy_pos=True,
-            vert_gap=1,
+            vert_gap=2,
             orthogonal_edges=True,
             annotation_to_color=annotation_map,
-            linewidth=1.1
+            linewidth=0.6
         )
         # turn legend off
         ax.legend().set_visible(False)
@@ -123,7 +98,7 @@ def create_duct_growth_gif_with_annotations(
         images.append(img)
 
     # duration=0.8 means 0.8s per frame
-    imageio.mimsave(output_filename, images, duration=0.1)
+    imageio.mimsave(output_filename, images, duration=0.03)
 
     print(f"GIF saved to {output_filename}")
 

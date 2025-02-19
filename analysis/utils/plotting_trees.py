@@ -42,8 +42,8 @@ def create_annotation_color_map(
     num_colors = cmap.N
 
     annotation_to_color = {}
-    sorted_annotations = sorted(annotations)  # Sort for consistent color assignment
-
+    sorted_annotations = sorted(annotations, key=int)  # Sort for consistent color assignment, bp IDs are integers
+    # sorted_annotations = sorted(annotations)
     for i, annotation in enumerate(sorted_annotations):
         color = cmap((i + 2) % num_colors)
         # Convert RGBA to HEX
@@ -121,7 +121,7 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
     else:
         pos = nx.nx_agraph.graphviz_layout(G, prog='dot', args='-Grankdir=TB', root=root_node)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(20, 12))
     ax.set_aspect('equal')
     ax.axis('off')
 
@@ -136,8 +136,11 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
             seg_data['segment_name'] = segment_name
             c = get_segment_color(seg_data, annotation_to_color, segment_color_map)
 
-        x1, y1 = pos[u]
-        x2, y2 = pos[v]
+        try:
+            x1, y1 = pos[u]
+            x2, y2 = pos[v]
+        except KeyError:
+            pass
 
         if orthogonal_edges:
             # Ensure top-down orientation (parent above child)
@@ -164,7 +167,7 @@ def plot_hierarchical_graph(G, system_data=None, root_node=None,
         for ann, color in annotation_to_color.items():
             legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
                                              markerfacecolor=color, label=ann))
-        ax.legend(handles=legend_handles, title='Annotations', loc='lower center', bbox_to_anchor=(0.5, -1.2))
+        ax.legend(handles=legend_handles, title='Annotations', loc='lower center', bbox_to_anchor=(0.5, -2))
 
     # add a depth-level scale bar to the right
     lowest_y = min(y for x, y in pos.values())

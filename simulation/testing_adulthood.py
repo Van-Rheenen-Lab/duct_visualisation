@@ -170,6 +170,25 @@ plt.xlabel("Iteration")
 plt.ylabel("Average Stem Cells")
 plt.title("Average Stem Cells per Unique Adult ID Over Time")
 
+
+# plot distribution of number of stem cells per unique adult id
+plt.figure(figsize=(8, 5))
+distribution = adult_adult_dists[-1].values()
+average = sum(distribution) / len(distribution)
+print(f"Average of stem cells per unique adult id: {average}")
+bins = range(min(distribution), max(distribution) + 2)
+plt.hist(distribution, bins=bins, align='left', rwidth=0.8)
+# plot red line for average
+plt.axvline(average, color='red', linestyle='dashed', linewidth=2)
+# make legend with average
+plt.legend([f"Average: {average:.2f}"])
+
+plt.xticks(range(min(distribution), max(distribution) + 1))
+plt.xlabel("Number of stem cells in adult clone")
+plt.ylabel("Frequency")
+plt.title("Stem Cells per Surviving Adult Clone after Adulthood")
+
+
 unique_clones_per_duct = progress_data_adult["unique_clones_per_duct"]
 plt.figure(figsize=(8, 5))
 average_clones_per_duct = []

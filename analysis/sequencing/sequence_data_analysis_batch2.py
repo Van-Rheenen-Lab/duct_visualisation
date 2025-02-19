@@ -71,7 +71,7 @@ plt.title('VAFs for fully positive mutations')
 fraction = len(df_clean2) / original_len
 print(f"Fraction of rows with at least 2 and max 5 positive VAFs: {fraction:.2%}")
 
-# calculate fraction of rows with 4 positive VAFs
+# calculate fraction of rows with 6 positive VAFs
 mask1 = (data > 0).sum(axis=1) == 6
 fraction = len(data[mask1]) / original_len
 print(f"Fraction of rows with 4 positive VAFs: {fraction:.2%}")

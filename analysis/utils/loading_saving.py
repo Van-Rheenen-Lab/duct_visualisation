@@ -34,41 +34,31 @@ def load_duct_systems(json_path):
 
     return duct_systems
 
-#
-# def create_duct_graph(duct_system):
-#     """
-#     Create a networkx graph from the given duct system.
-#
-#     Parameters
-#     ----------
-#     duct_system : dict
-#         Dictionary containing "branch_points" and "segments".
-#
-#     Returns
-#     -------
-#     nx.Graph
-#         A graph where nodes are branch points and edges are segments.
-#     """
-#     G = nx.Graph()
-#     bps = duct_system["branch_points"]
-#     segs = duct_system["segments"]
-#
-#     # Add nodes
-#     for bp_name in bps:
-#         G.add_node(bp_name, **bps[bp_name])
-#         # add their position as an attribute
-#         G.nodes[bp_name]["pos"] = (bps[bp_name]["x"], bps[bp_name]["y"], bps[bp_name]["z"])
-#
-#     # Add edges
-#     for seg_name, seg_data in segs.items():
-#         start_bp = seg_data["start_bp"]
-#         end_bp = seg_data["end_bp"]
-#         if start_bp not in G or end_bp not in G:
-#             warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
-#             continue
-#         G.add_edge(start_bp, end_bp, segment_name=seg_name)
-#
-#     return G
+
+def create_duct_graph(duct_system):
+    """
+    Create a networkx graph from the given duct system.
+    """
+    G = nx.Graph()
+    bps = duct_system["branch_points"]
+    segs = duct_system["segments"]
+
+    # Add nodes
+    for bp_name in bps:
+        G.add_node(bp_name, **bps[bp_name])
+        # add their position as an attribute
+        G.nodes[bp_name]["pos"] = (bps[bp_name]["x"], bps[bp_name]["y"], bps[bp_name]["z"])
+
+    # Add edges
+    for seg_name, seg_data in segs.items():
+        start_bp = seg_data["start_bp"]
+        end_bp = seg_data["end_bp"]
+        if start_bp not in G or end_bp not in G:
+            warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
+            continue
+        G.add_edge(start_bp, end_bp, segment_name=seg_name)
+
+    return G
 
 def create_directed_duct_graph(duct_system):
     """
