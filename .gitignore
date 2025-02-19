@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+*.png
+*.csv
+*.xlsx
+*.txt
+*.gif
 # Distribution / packaging
 .Python
 build/
@@ -16,8 +21,6 @@ simulation/frames/
 eggs/
 .eggs/
 .idea
-.PNG
-.png
 lib/
 lib64/
 parts/
