@@ -1248,7 +1248,7 @@ class DuctSystemGUI(QMainWindow):
             # Create QGraphicsPolygonItem
             polygon_item = QGraphicsPolygonItem(polygon)
             # Set pen color
-            pen = QPen(self.outline_color, 2
+            pen = QPen(self.outline_color, 2)  
             polygon_item.setPen(pen)
             # Add to scene
             self.scene.addItem(polygon_item)
