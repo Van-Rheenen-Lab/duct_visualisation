@@ -1,8 +1,8 @@
 import json
 import networkx as nx
 import warnings
-import matplotlib.pyplot as plt
 from shapely.geometry import LineString
+import numpy as np
 
 def load_duct_systems(json_path):
     """
@@ -207,4 +207,59 @@ def select_biggest_duct_system(duct_systems: dict) -> tuple:
 
     print(f"Using network with key '{selected_index}' as the graph")
     return duct_systems[selected_index]
+
+def load_duct_mask(duct_borders_path, out_shape, buffer=0, all_touched=False):
+    """
+    Loads duct border geometries from a GeoJSON file, fixes invalid geometries,
+    unions them into a single polygon, and rasterizes the result to create a mask.
+
+    Parameters
+    ----------
+    duct_borders_path : str
+        Path to the GeoJSON file containing duct borders.
+    out_shape : tuple
+        The shape (height, width) for the output raster mask.
+    buffer : float, optional
+        Buffer distance to apply to the unioned polygon before rasterizing.
+    all_touched : bool, optional
+        Passed to rasterize().
+
+    Returns
+    -------
+    duct_polygon : shapely.geometry.Polygon
+        The unioned (and optionally buffered) duct polygon.
+    duct_mask : np.ndarray
+        A binary mask of shape `out_shape` with the duct area.
+    """
+    import json
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+    from shapely.validation import make_valid
+    from rasterio.features import rasterize
+
+    with open(duct_borders_path, 'r') as f:
+        duct_borders = json.load(f)
+
+    valid_geoms = []
+    for feat in duct_borders['features']:
+        geom = shape(feat['geometry'])
+        if not geom.is_valid:
+            geom = make_valid(geom)
+        if geom.is_valid:
+            valid_geoms.append(geom)
+        else:
+            print("Skipping geometry that could not be fixed:", feat['geometry'])
+
+    duct_polygon = unary_union(valid_geoms)
+    if buffer:
+        duct_polygon = duct_polygon.buffer(buffer)
+
+    duct_mask = rasterize(
+        [(duct_polygon, 1)],
+        out_shape=out_shape,
+        fill=0,
+        dtype=np.uint8,
+        all_touched=all_touched
+    )
+    return duct_polygon, duct_mask
 

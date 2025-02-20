@@ -2,27 +2,15 @@ import os
 import random
 import json
 import itertools
-import math
-from collections import Counter
-
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-import pandas as pd
 import seaborn as sns
-
-# Import your custom simulation modules
 from puberty import simulate_ductal_tree
 from adulthood import simulate_adulthood
-# Note: plotting_ducts and plot_selected_ducts are no longer used for simulation plots.
 from duct_excision_simulations import gather_clone_fractions_for_selected_ducts
-
-# Import your real data modules
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, select_biggest_duct_system
-from analysis.utils.fixing_annotations import simplify_graph
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
-
-# For real data geometry processing:
 from shapely.geometry import shape
 from shapely.ops import unary_union
 from shapely.validation import make_valid
@@ -111,9 +99,7 @@ def save_figure_with_separated_legend(fig, base_filename, dpi=900, output_folder
     else:
         fig.savefig(main_path, dpi=dpi, bbox_inches='tight')
 
-###############################################################################
-# Main function
-###############################################################################
+
 def main():
     random.seed(42)
 

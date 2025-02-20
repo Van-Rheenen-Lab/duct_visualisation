@@ -10,7 +10,7 @@ import networkx as nx
 from collections import deque
 
 # Assume these functions have been updated to work with graph-only data:
-from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root
+from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, load_duct_mask
 from analysis.utils.fixing_annotations import simplify_graph
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
 
@@ -133,23 +133,7 @@ if __name__ == "__main__":
     # Create a directed graph from the duct system.
     G = create_directed_duct_graph(duct_system)
 
-    # Load and fix duct borders from geojson.
-    with open(duct_borders_path, 'r') as f:
-        duct_borders = json.load(f)
-    valid_geoms = []
-    for feat in duct_borders['features']:
-        geom = shape(feat['geometry'])
-        if not geom.is_valid:
-            geom = make_valid(geom)
-        if geom.is_valid:
-            valid_geoms.append(geom)
-        else:
-            print("Skipping geometry that could not be fixed:", feat['geometry'])
-
-    duct_polygon = unary_union(valid_geoms)
-    base_shape = red_image.shape
-    shapes = [(duct_polygon, 1)]
-    duct_mask = rasterize(shapes, out_shape=base_shape, fill=0, dtype=np.uint8, all_touched=False)
+    duct_polygon, duct_mask = load_duct_mask(duct_borders_path, out_shape=red_image.shape)
 
     # Plot the downstream subgraph with striped subsegments.
     fig, ax = plot_downstream_graph_subsegments(
