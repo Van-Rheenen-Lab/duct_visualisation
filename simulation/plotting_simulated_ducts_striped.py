@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from collections import Counter
 import math
+from collections import Counter
 
 
 def hierarchy_pos(G, root=None, vert_gap=0.2):
@@ -44,14 +44,13 @@ def plot_hierarchical_graph_subsegments_simulated(
     """
     Plots a simulated ductal tree with each edge (duct) split into subsegments.
 
-    For each edge, the cell (clone) list (given by `clone_attr`) is partitioned
-    into subsegments. If there are fewer cells than desired_subsegments, the number
-    of subsegments equals the number of cells (or 1 if there are none). For each
-    subsegment, the majority annotation is used to look up a color (via
-    annotation_to_color) to draw that stripe.
+    For each edge, the cell (clone) list (from the attribute given by `clone_attr`)
+    is partitioned into subsegments. If there are fewer clones than `subsegments`,
+    the number of subsegments equals the number of clones (or 1 if none).
+    For each subsegment, the majority annotation is determined and used to look up a color
+    (via annotation_to_color) for drawing that stripe.
     """
-
-    # Get node positions using hierarchy or graphviz layout.
+    # Determine node positions.
     if use_hierarchy_pos:
         pos = hierarchy_pos(G, root=root_node, vert_gap=vert_gap)
     else:
@@ -62,19 +61,17 @@ def plot_hierarchical_graph_subsegments_simulated(
     ax.axis('off')
 
     for (u, v) in G.edges():
+        # Retrieve node positions for the edge endpoints.
         x1, y1 = pos[u]
         x2, y2 = pos[v]
 
-        # Get the list of clones (simulated cells) for this duct.
+        # Get the clone list for this edge.
         clones = G[u][v].get(clone_attr, [])
         M = len(clones)
-        # If no clones, we still draw a single stripe.
-        if M > 0:
-            n_seg = subsegments if M >= subsegments else M
-        else:
-            n_seg = 1
+        # Determine the number of subsegments.
+        n_seg = subsegments if M >= subsegments else (M if M > 0 else 1)
 
-        # Partition the clones evenly (assumes order corresponds to position)
+        # Partition the clone list evenly and determine the majority annotation in each segment.
         clone_annotations = []
         if M > 0:
             for i in range(n_seg):
@@ -82,13 +79,13 @@ def plot_hierarchical_graph_subsegments_simulated(
                 end_idx = math.floor((i + 1) * M / n_seg)
                 subclone_list = clones[start_idx:end_idx]
                 if subclone_list:
-                    # Only consider clones that are in the annotation color map.
                     if annotation_to_color is not None:
-                        annotated_subclones = [c for c in subclone_list if str(c) in annotation_to_color]
+                        # Compare as strings so that keys match.
+                        annotated = [str(c) for c in subclone_list if str(c) in annotation_to_color]
                     else:
-                        annotated_subclones = subclone_list
-                    if annotated_subclones:
-                        cnt = Counter(annotated_subclones)
+                        annotated = [str(c) for c in subclone_list]
+                    if annotated:
+                        cnt = Counter(annotated)
                         ann, _ = cnt.most_common(1)[0]
                         clone_annotations.append(ann)
                     else:
@@ -98,41 +95,39 @@ def plot_hierarchical_graph_subsegments_simulated(
         else:
             clone_annotations = [None] * n_seg
 
+        # Draw the subsegments.
         if orthogonal_edges:
-            # Determine lengths for an orthogonal route:
+            # Compute horizontal and vertical lengths.
             horiz_len = abs(x2 - x1)
             vert_len = abs(y2 - y1)
             total_len = horiz_len + vert_len
-            # If needed, flip nodes so the horizontal part comes first.
+
+            # Flip nodes if necessary so that the horizontal part comes first.
             if y1 < y2:
                 x1, y1, x2, y2 = x2, y2, x1, y1
                 horiz_len = abs(x2 - x1)
                 vert_len = abs(y2 - y1)
                 total_len = horiz_len + vert_len
 
-            # For each subsegment, compute its start and end distance along the duct.
             for i in range(n_seg):
                 start_frac = i / n_seg
                 end_frac = (i + 1) / n_seg
                 dist_start = start_frac * total_len
                 dist_end = end_frac * total_len
 
-                # Choose color based on annotation (default to black if no mapping).
+                # Choose a color based on the determined annotation.
                 ann = clone_annotations[i]
                 ann_str = str(ann) if ann is not None else None
-                if annotation_to_color and ann_str in annotation_to_color:
-                    color = annotation_to_color[ann_str]
-                else:
-                    color = 'black'
+                color = annotation_to_color.get(ann_str, 'black') if (annotation_to_color and ann_str) else 'black'
 
-                # Case 1: Entirely in horizontal part.
+                # Case 1: Entirely in the horizontal segment.
                 if dist_end <= horiz_len:
                     sx = x1 + (x2 - x1) * (dist_start / horiz_len) if horiz_len > 0 else x1
                     ex = x1 + (x2 - x1) * (dist_end / horiz_len) if horiz_len > 0 else x1
                     sy = y1
                     ey = y1
                     ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
-                # Case 2: Entirely in vertical part.
+                # Case 2: Entirely in the vertical segment.
                 elif dist_start >= horiz_len:
                     vs = (dist_start - horiz_len) / vert_len if vert_len > 0 else 0
                     ve = (dist_end - horiz_len) / vert_len if vert_len > 0 else 0
@@ -141,15 +136,15 @@ def plot_hierarchical_graph_subsegments_simulated(
                     sy = y1 + np.sign(y2 - y1) * (vert_len * vs)
                     ey = y1 + np.sign(y2 - y1) * (vert_len * ve)
                     ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
-                # Case 3: Subsegment spans horizontal and vertical parts.
+                # Case 3: The subsegment spans both horizontal and vertical parts.
                 else:
-                    # Horizontal part from dist_start to the end of horizontal segment.
+                    # Horizontal part: from dist_start to end of horizontal section.
                     sx = x1 + (x2 - x1) * (dist_start / horiz_len) if horiz_len > 0 else x1
-                    ex = x2  # end of horizontal section
+                    ex = x2
                     sy = y1
                     ey = y1
                     ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
-                    # Vertical part for the remainder.
+                    # Vertical part: remainder of the subsegment.
                     ve = (dist_end - horiz_len) / vert_len if vert_len > 0 else 0
                     sx2 = x2
                     ex2 = x2
@@ -157,7 +152,7 @@ def plot_hierarchical_graph_subsegments_simulated(
                     ey2 = y1 + np.sign(y2 - y1) * (vert_len * ve)
                     ax.plot([sx2, ex2], [sy2, ey2], color=color, linewidth=linewidth, zorder=1)
         else:
-            # Non-orthogonal: simply interpolate between (x1,y1) and (x2,y2).
+            # For non-orthogonal drawing, simply interpolate along the straight line.
             for i in range(n_seg):
                 start_frac = i / n_seg
                 end_frac = (i + 1) / n_seg
@@ -166,12 +161,11 @@ def plot_hierarchical_graph_subsegments_simulated(
                 ex = x1 + (x2 - x1) * end_frac
                 ey = y1 + (y2 - y1) * end_frac
                 ann = clone_annotations[i]
-                if annotation_to_color and ann in annotation_to_color:
-                    color = annotation_to_color[ann]
-                else:
-                    color = 'black'
+                color = annotation_to_color.get(str(ann), 'black') if (
+                            annotation_to_color and ann is not None) else 'black'
                 ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
 
+    # Optionally draw node labels.
     if draw_nodes:
         for node in G.nodes():
             x, y = pos[node]

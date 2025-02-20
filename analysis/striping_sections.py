@@ -6,8 +6,8 @@ from rasterio.features import rasterize
 from skimage import io
 import matplotlib.pyplot as plt
 from shapely.validation import make_valid
-from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph
-from analysis.utils.fixing_annotations import simplify_duct_system
+from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root
+from analysis.utils.fixing_annotations import simplify_graph
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
 import networkx as nx
 from collections import deque
@@ -78,7 +78,6 @@ def remove_downstream_nodes(G_dir, cut_nodes):
 
 def plot_downstream_graph_subsegments(
     duct_system,
-    start_node,
     duct_mask,
     red_image=None,
     green_image=None,
@@ -103,13 +102,10 @@ def plot_downstream_graph_subsegments(
     # Build a directed graph
     G_dir = create_directed_duct_graph(duct_system)
 
-    if start_node is None:
-        first_bp = list(G_dir.nodes)[0]
-        # find parent of first branch point iteratively
-        while len(list(G_dir.predecessors(first_bp))) == 1:
-            first_bp = list(G_dir.predecessors(first_bp))[0]
-        start_node = first_bp
-        print(f"Starting from first branch point: {start_node}")
+    # Simplify the graph
+    G_dir = simplify_graph(G_dir)
+
+    start_node = find_root(G_dir)
 
     # Extract just the portion downstream of 'start_node'
     subG = get_downstream_subgraph(G_dir, start_node)
@@ -138,51 +134,19 @@ def plot_downstream_graph_subsegments(
     )
     return fig, ax
 
-#
-# json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-# duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
-#
-# green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-# yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-# red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
-# threshold_value = 1000
-# selected_bp = None
-# cut_nodes = None
-# system_idx = 1
-
-# red_image_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\28052024_2435322_L5_ecad_mAX-0006.tif'
-# duct_borders_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\annotations_exported.geojson'
-# json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
-# green_image_path = None
-# yellow_image_path = None
-# threshold_value = 1000
-# selected_bp = None
-# cut_nodes = None
-# system_idx = 0
-
-# json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\890_annotations.json'
-# duct_borders_path =  r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max.lif - TileScan 1 Merged_Processed001_duct.geojson'
-#
-# red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0003.tif'
-# yellow_image_path = None
-# green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2475890_BhomPhet_24W\05112024_2475890_L4_sma_mp1_max_forbranchanalysis-0001.tif'
-# system_idx = 2
-# threshold_value = 1000
-# selected_bp = None
-# cut_nodes = None
-
-json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\annotations 7324-1.json"
-duct_borders_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\01062024_7324_L5_sma_max.lif - TileScan 1 Merged_Processed001_forbranchanalysis.geojson"
-
-red_image_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\30052024_7324_L5_sma_max_clean_forbranchanalysis-0005.tif"
-green_image_path = None
-yellow_image_path = None
-system_idx = 1
-threshold_value = 1000
-selected_bp = None
-cut_nodes = None
 
 if __name__ == "__main__":
+
+    json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\annotations 7324-1.json"
+    duct_borders_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\01062024_7324_L5_sma_max.lif - TileScan 1 Merged_Processed001_forbranchanalysis.geojson"
+
+    red_image_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\30052024_7324_L5_sma_max_clean_forbranchanalysis-0005.tif"
+    green_image_path = None
+    yellow_image_path = None
+    system_idx = 1
+    threshold_value = 1000
+    selected_bp = None
+    cut_nodes = None
 
     # Load images
     red_image = io.imread(red_image_path) if red_image_path else None
@@ -193,10 +157,8 @@ if __name__ == "__main__":
     duct_systems = load_duct_systems(json_path)
     duct_system = duct_systems[system_idx]
 
-    # Clean/simplify
-    if len(duct_system["segments"]) > 0:
-        first_branch_node = list(duct_system["branch_points"].keys())[0]
-        duct_system = simplify_duct_system(duct_system, first_branch_node)
+    # Simplify the graph
+
 
     # Build a polygon mask of the duct
     with open(duct_borders_path, 'r') as f:
@@ -221,7 +183,6 @@ if __name__ == "__main__":
 
     plot_downstream_graph_subsegments(
         duct_system=duct_system,
-        start_node=selected_bp,
         duct_mask=duct_mask,
         red_image=red_image,
         green_image=green_image,

@@ -4,6 +4,7 @@ import numpy as np
 from shapely.geometry import LineString
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 
+
 def hierarchy_pos(G, root=None, vert_gap=0.2):
     if root is None:
         root = list(G.nodes)[0]
@@ -27,43 +28,49 @@ def hierarchy_pos(G, root=None, vert_gap=0.2):
     recurse(root, 0)
     return pos
 
-def get_line_for_segment(duct_system, segment_name):
-    segments = duct_system['segments']
-    branch_points = duct_system['branch_points']
 
-    seg_data = segments[segment_name]
-    start_bp = branch_points[seg_data['start_bp']]
-    end_bp = branch_points[seg_data['end_bp']]
-    pts = [(start_bp['x'], start_bp['y'])]
-    pts.extend([(p['x'], p['y']) for p in seg_data.get('internal_points', [])])
-    pts.append((end_bp['x'], end_bp['y']))
+def get_line_for_edge(G, u, v):
+    """
+    Build a LineString for the edge between nodes u and v using the node attributes.
+    It uses the 'x' and 'y' coordinates stored on each node and, if present,
+    any internal points stored in the edge's "internal_points" attribute.
+    """
+    start_data = G.nodes[u]
+    end_data = G.nodes[v]
+    pts = [(start_data['x'], start_data['y'])]
+    edge_data = G.get_edge_data(u, v)
+    if edge_data and edge_data.get("internal_points"):
+        pts.extend([(p['x'], p['y']) for p in edge_data.get("internal_points", [])])
+    pts.append((end_data['x'], end_data['y']))
     return LineString(pts)
+
 
 def precompute_line_parameters(line):
     line_coords = np.array(line.coords)
     diffs = np.diff(line_coords, axis=0)
-    seg_lens = np.sqrt((diffs**2).sum(axis=1))
+    seg_lens = np.sqrt((diffs ** 2).sum(axis=1))
     cumulative_lengths = np.concatenate(([0], np.cumsum(seg_lens)))
     total_length = cumulative_lengths[-1]
     return line_coords, diffs, seg_lens, cumulative_lengths, total_length
+
 
 def project_pixels_onto_line(xs, ys, line_coords, segment_vecs, segment_lengths, cumulative_lengths):
     px = xs[:, None]
     py = ys[:, None]
     sx = line_coords[:-1, 0][None, :]
     sy = line_coords[:-1, 1][None, :]
-    vx = segment_vecs[:,0][None, :]
-    vy = segment_vecs[:,1][None, :]
-    seg_len_sq = segment_lengths**2
+    vx = segment_vecs[:, 0][None, :]
+    vy = segment_vecs[:, 1][None, :]
+    seg_len_sq = segment_lengths ** 2
 
-    dot = (px - sx)*vx + (py - sy)*vy
+    dot = (px - sx) * vx + (py - sy) * vy
     t = dot / seg_len_sq[None, :]
     t_clamped = np.clip(t, 0, 1)
-    proj_x = sx + t_clamped*vx
-    proj_y = sy + t_clamped*vy
+    proj_x = sx + t_clamped * vx
+    proj_y = sy + t_clamped * vy
     dx = px - proj_x
     dy = py - proj_y
-    dist_sq = dx*dx + dy*dy
+    dist_sq = dx * dx + dy * dy
     idx_min = np.argmin(dist_sq, axis=1)
     t_chosen = t_clamped[np.arange(len(xs)), idx_min]
     chosen_seg_lengths = segment_lengths[idx_min]
@@ -72,13 +79,14 @@ def project_pixels_onto_line(xs, ys, line_coords, segment_vecs, segment_lengths,
     min_dist_sq = dist_sq[np.arange(len(xs)), idx_min]
     return fraction_dist, min_dist_sq
 
+
 def assign_pixels_to_subsegments(line, duct_mask, images, threshold, N=100, buffer_width=5):
     minx, miny, maxx, maxy = line.bounds
     minx = max(int(minx - buffer_width), 0)
     miny = max(int(miny - buffer_width), 0)
-    maxx = min(int(maxx + buffer_width), duct_mask.shape[1]-1)
-    maxy = min(int(maxy + buffer_width), duct_mask.shape[0]-1)
-    sub_mask = duct_mask[miny:maxy+1, minx:maxx+1]
+    maxx = min(int(maxx + buffer_width), duct_mask.shape[1] - 1)
+    maxy = min(int(maxy + buffer_width), duct_mask.shape[0] - 1)
+    sub_mask = duct_mask[miny:maxy + 1, minx:maxx + 1]
     ys, xs = np.where(sub_mask == 1)
     if len(xs) == 0:
         num_channels = len(images)
@@ -97,9 +105,10 @@ def assign_pixels_to_subsegments(line, duct_mask, images, threshold, N=100, buff
         else:
             pixel_values.append(img[ys, xs])
     pixel_values = np.array(pixel_values).T
-    fraction_dist, min_dist_sq = project_pixels_onto_line(xs, ys, line_coords, segment_vecs, segment_lengths, cumulative_lengths)
+    fraction_dist, min_dist_sq = project_pixels_onto_line(xs, ys, line_coords, segment_vecs, segment_lengths,
+                                                          cumulative_lengths)
     fractions = fraction_dist / total_length
-    inside_corridor = (min_dist_sq <= buffer_width*buffer_width)
+    inside_corridor = (min_dist_sq <= buffer_width * buffer_width)
     if not np.any(inside_corridor):
         return np.zeros((N, num_channels), dtype=int), np.zeros((N, num_channels), dtype=int)
     fractions = fractions[inside_corridor]
@@ -130,12 +139,22 @@ def create_rgb_color_from_percentages(vals):
         return '#ffff00'  # Yellow
 
 
-def plot_hierarchical_graph_subsegments(G, system_data, root_node,
-                                        duct_mask, red_image=None, green_image=None, yellow_image=None,
-                                        threshold=500, N=100, draw_nodes=False,
-                                        use_hierarchy_pos=False, vert_gap=1,
-                                        orthogonal_edges=True, linewidth=1.5, buffer_width=5):
-
+def plot_hierarchical_graph_subsegments(
+        G,
+        root_node,
+        duct_mask,
+        red_image=None,
+        green_image=None,
+        yellow_image=None,
+        threshold=500,
+        N=100,
+        draw_nodes=False,
+        use_hierarchy_pos=False,
+        vert_gap=1,
+        orthogonal_edges=True,
+        linewidth=1.5,
+        buffer_width=5
+):
     if not G.nodes:
         raise ValueError("The graph is empty.")
     pos = (hierarchy_pos(G, root=root_node, vert_gap=vert_gap) if use_hierarchy_pos
@@ -147,26 +166,18 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
     segment_data_cache = {}
 
     for (u, v) in G.edges():
-        segment_name = G[u][v].get('segment_name', None)
+        # Use the edge's stored segment name (if any)
+        segment_name = G[u][v].get('segment_name', f"{u}_to_{v}")
         x1, y1 = pos[u]
         x2, y2 = pos[v]
-        if segment_name is None or 'segments' not in system_data:
-            if orthogonal_edges:
-                if y1 < y2:
-                    x1, y1, x2, y2 = x2, y2, x1, y1
-                ax.plot([x1, x2], [y1, y1], color='black', linewidth=linewidth, zorder=1)
-                ax.plot([x2, x2], [y1, y2], color='black', linewidth=linewidth, zorder=1)
-            else:
-                ax.plot([x1, x2], [y1, y2], color='black', linewidth=linewidth, zorder=1)
-            continue
 
+        # Get the line geometry for this edge directly from the graph.
         if segment_name not in segment_data_cache:
-            line = get_line_for_segment(system_data, segment_name)
+            line = get_line_for_edge(G, u, v)
             totals, positives = assign_pixels_to_subsegments(line, duct_mask, images,
                                                              threshold, N=N,
                                                              buffer_width=buffer_width)
             segment_data_cache[segment_name] = (totals, positives)
-
         totals, positives = segment_data_cache[segment_name]
         percentages = np.zeros_like(positives, dtype=float)
         mask_nonzero = (totals > 0)
@@ -222,16 +233,17 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
             for i in range(N):
                 start_frac = i / N
                 end_frac = (i + 1) / N
-                sx = x1 + (x2 - x1)*start_frac
-                sy = y1 + (y2 - y1)*start_frac
-                ex = x1 + (x2 - x1)*end_frac
-                ey = y1 + (y2 - y1)*end_frac
+                sx = x1 + (x2 - x1) * start_frac
+                sy = y1 + (y2 - y1) * start_frac
+                ex = x1 + (x2 - x1) * end_frac
+                ey = y1 + (y2 - y1) * end_frac
                 vals = percentages[i, :]
                 color = create_rgb_color_from_percentages(vals)
                 ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
 
+    # Determine which image channels are used (if any)
     channel_used = [red_image is not None, green_image is not None, yellow_image is not None]
-    channel_used = [False, False, False]
+    # (Do not overwrite channel_used with [False, False, False])
     colors_list = ['red', 'green', 'yellow']
     channel_labels = ['Red (%)', 'Green (%)', 'Yellow (%)']
     cmaps = []
@@ -254,9 +266,7 @@ def plot_hierarchical_graph_subsegments(G, system_data, root_node,
     if draw_nodes:
         for node in G.nodes():
             x, y = pos[node]
-            ax.text(x, y, node, fontsize=5, ha='center', va='center', zorder=3, color='navy')
-
+            ax.text(x, y, str(node), fontsize=5, ha='center', va='center', zorder=3, color='navy')
 
     plt.tight_layout()
-
     return fig, ax

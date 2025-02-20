@@ -18,8 +18,8 @@ from adulthood import simulate_adulthood
 from duct_excision_simulations import gather_clone_fractions_for_selected_ducts
 
 # Import your real data modules
-from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph
-from analysis.utils.fixing_annotations import simplify_duct_system
+from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, select_biggest_duct_system
+from analysis.utils.fixing_annotations import simplify_graph
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
 
 # For real data geometry processing:
@@ -29,21 +29,14 @@ from shapely.validation import make_valid
 from rasterio.features import rasterize
 from skimage import io
 from plotting_simulated_ducts_striped import plot_hierarchical_graph_subsegments_simulated
+from plotting_simulated_ducts import plot_selected_ducts
 
 def plot_branch_level_distribution(G, title="Branch Level Distribution", save_path=None):
     """
     Computes the shortest-path levels from a root (a node with in-degree 0)
     and plots a bar chart of the number of ducts (nodes) per level.
     """
-    # Find a root (node with no incoming edges)
-    root = None
-    for node in G.nodes():
-        if G.in_degree(node) == 0:
-            root = node
-            break
-    if root is None:
-        root = list(G.nodes())[0]
-    # Compute levels
+    root = find_root(G)
     level_dict = nx.shortest_path_length(G, source=root)
     counts = {}
     for node, lvl in level_dict.items():
@@ -124,7 +117,6 @@ def save_figure_with_separated_legend(fig, base_filename, dpi=900, output_folder
 def main():
     random.seed(42)
 
-    # Create output folder for images
     output_folder = "output_images"
     os.makedirs(output_folder, exist_ok=True)
 
@@ -149,14 +141,9 @@ def main():
     # Load real duct system(s)
     duct_systems = load_duct_systems(json_path)
 
-    # Choose the network with the most branch points
-    big_graph_len = 0
-    for key in duct_systems:
-        if len(duct_systems[key]["branch_points"]) > big_graph_len:
-            big_graph_len = len(duct_systems[key]["branch_points"])
-            index = key
-    print(f"Using network with key {index} as the graph")
-    duct_system = duct_systems[index]
+    # Select the biggest duct system
+    duct_system = select_biggest_duct_system(duct_systems)
+
 
     # Create duct mask from borders
     with open(duct_borders_path, 'r') as f:
@@ -197,7 +184,6 @@ def main():
     # Plot the striped tree for the real network
     fig_real, ax_real = plot_hierarchical_graph_subsegments(
         G=G_real,
-        system_data=duct_system,
         root_node=root_node,
         duct_mask=duct_mask,
         red_image=red_image,
@@ -224,10 +210,6 @@ def main():
         save_path=os.path.join(output_folder, "real_network_branch_level_distribution.png")
     )
     plt.close()
-
-    ############################################################################
-    # Simulation plots using the new sub-segmented plotting function
-    ############################################################################
 
     # -- Simulate Puberty --
     G_puberty, progress_data_puberty = simulate_ductal_tree(
@@ -282,9 +264,6 @@ def main():
     else:
         selected_ducts = []
 
-    # Plot the selected ducts on the puberty simulation duct tree
-    # (using the original function for selected ducts if desired)
-    from plotting_simulated_ducts import plot_selected_ducts  # if still needed
     plot_selected_ducts(G_puberty, selected_ducts, vert_gap=vert_gap)
     plt.title("Simulated Puberty: Selected Ducts for Heatmap Analysis")
     fig_selected = plt.gcf()
@@ -313,7 +292,7 @@ def main():
     )
     plt.title("Simulated Ductal Tree after Adulthood (Subsegmented, Pubertal Clones)")
     fig_adult.set_size_inches(35, 12)
-    save_figure_with_separated_legend(fig_adult, "adulthood_duct_tree_highlighted", dpi=600, output_folder=output_folder)
+    save_figure_with_separated_legend(fig_adult, "adulthood_duct_tree_highlighted", dpi=900, output_folder=output_folder)
     plt.close(fig_adult)
 
     # Create a new clone_color_map for adult clones
@@ -346,7 +325,7 @@ def main():
     )
     plt.title("Simulated Ductal Tree after Adulthood (Subsegmented, Adult Clones)")
     fig_adult2.set_size_inches(35, 12)
-    save_figure_with_separated_legend(fig_adult2, "adulthood_duct_tree_adult_clones", dpi=600, output_folder=output_folder)
+    save_figure_with_separated_legend(fig_adult2, "adulthood_duct_tree_adult_clones", dpi=900, output_folder=output_folder)
     plt.close(fig_adult2)
 
     df_puberty = gather_clone_fractions_for_selected_ducts(
@@ -403,7 +382,7 @@ def main():
     plt.ylabel("Clone IDs")
     plt.yticks([])
     plt.title("Simulated Sequencing Post-Puberty (Clone Fractions)")
-    plt.savefig(os.path.join(output_folder, "heatmap_puberty_clone_fractions.png"), dpi=600, bbox_inches='tight')
+    plt.savefig(os.path.join(output_folder, "heatmap_puberty_clone_fractions.png"), dpi=900, bbox_inches='tight')
     plt.close()
 
     # Plot heatmap for adulthood (pubertal clones)
@@ -412,7 +391,7 @@ def main():
     plt.ylabel("Clone IDs (Pubertal)")
     plt.yticks([])
     plt.title("Simulated Sequencing Post-Adulthood (Pubertal Clones)")
-    plt.savefig(os.path.join(output_folder, "heatmap_adulthood_pubertal_clone_fractions.png"), dpi=600,
+    plt.savefig(os.path.join(output_folder, "heatmap_adulthood_pubertal_clone_fractions.png"), dpi=900,
                 bbox_inches='tight')
     plt.close()
 
@@ -422,7 +401,7 @@ def main():
     plt.ylabel("Clone IDs (Adult)")
     plt.yticks([])
     plt.title("Simulated Sequencing Post-Adulthood (Adult Clones)")
-    plt.savefig(os.path.join(output_folder, "heatmap_adulthood_adult_clone_fractions.png"), dpi=600,
+    plt.savefig(os.path.join(output_folder, "heatmap_adulthood_adult_clone_fractions.png"), dpi=900,
                 bbox_inches='tight')
     plt.close()
 

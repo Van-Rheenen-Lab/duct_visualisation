@@ -2,6 +2,7 @@ import json
 import networkx as nx
 import warnings
 import matplotlib.pyplot as plt
+from shapely.geometry import LineString
 
 def load_duct_systems(json_path):
     """
@@ -34,49 +35,59 @@ def load_duct_systems(json_path):
 
     return duct_systems
 
-
 def create_duct_graph(duct_system):
     """
     Create a networkx graph from the given duct system.
+    Each edge now stores additional metadata including internal_points, z-values,
+    annotations, and properties (which can include an annotation label).
     """
     G = nx.Graph()
     bps = duct_system["branch_points"]
     segs = duct_system["segments"]
 
-    # Add nodes
-    for bp_name in bps:
-        G.add_node(bp_name, **bps[bp_name])
-        # add their position as an attribute
-        G.nodes[bp_name]["pos"] = (bps[bp_name]["x"], bps[bp_name]["y"], bps[bp_name]["z"])
+    # Add nodes with their attributes.
+    for bp_name, bp_data in bps.items():
+        G.add_node(bp_name, **bp_data)
+        # Also store the position as a tuple.
+        G.nodes[bp_name]["pos"] = (bp_data["x"], bp_data["y"], bp_data["z"])
 
-    # Add edges
+    # Add edges along with full metadata.
     for seg_name, seg_data in segs.items():
         start_bp = seg_data["start_bp"]
         end_bp = seg_data["end_bp"]
         if start_bp not in G or end_bp not in G:
             warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
             continue
-        G.add_edge(start_bp, end_bp, segment_name=seg_name)
+
+        G.add_edge(
+            start_bp,
+            end_bp,
+            segment_name=seg_name,
+            internal_points=seg_data.get('internal_points', []),
+            start_z=seg_data.get('start_z'),
+            end_z=seg_data.get('end_z'),
+            annotations=seg_data.get('annotations', []),
+            properties=seg_data.get('properties', {})  # This can include your "Annotation" key.
+        )
 
     return G
 
-def create_directed_duct_graph(duct_system):
-    """
-    Creates a directed graph with nodes for all branch_points,
-    and directed edges from start_bp -> end_bp for each segment.
 
-    If a segment references an undefined branch point, logs a warning
-    and skips that segment.
+def create_directed_duct_graph(duct_system: dict) -> nx.DiGraph:
+    """
+    Creates a directed graph with nodes for all branch_points and
+    directed edges for each segment. All metadata from duct_system is stored
+    in the node and edge attributes.
     """
     G_dir = nx.DiGraph()
     branch_points = duct_system.get("branch_points", {})
     segments = duct_system.get("segments", {})
 
-    # Add all branch points as nodes with attributes
+    # Add branch points as nodes.
     for bp_name, bp_data in branch_points.items():
         G_dir.add_node(bp_name, **bp_data)
 
-    # Add directed edges for valid segments
+    # Add edges for segments.
     for seg_name, seg_data in segments.items():
         start_bp = seg_data["start_bp"]
         end_bp = seg_data["end_bp"]
@@ -85,6 +96,7 @@ def create_directed_duct_graph(duct_system):
             warnings.warn(f"Segment '{seg_name}' references undefined branch points.")
             continue
 
+        # Store all segment properties on the edge.
         G_dir.add_edge(
             start_bp,
             end_bp,
@@ -131,37 +143,68 @@ def save_annotations(duct_systems, filename):
         json.dump(data, file, indent=4)
 
 
-if __name__ == "__main__":
-    # Path to your JSON file
-    from fixing_annotations import simplify_duct_system
-    from plotting_trees import plot_hierarchical_graph
-    json_path = r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations example hendrik\T18_05203.json"
+def get_line_for_edge(G: nx.DiGraph, u: str, v: str) -> LineString:
+    """
+    Build a LineString for the edge between nodes u and v using node and edge attributes.
+    """
+    # Get coordinates from the nodes.
+    start_data = G.nodes[u]
+    end_data = G.nodes[v]
+    pts = [(start_data['x'], start_data['y'])]
 
-    # Load duct systems
-    duct_systems = load_duct_systems(json_path)
+    # Optionally include internal points stored on the edge.
+    edge_data = G.get_edge_data(u, v)
+    if edge_data and edge_data.get("internal_points"):
+        pts.extend([(p['x'], p['y']) for p in edge_data.get("internal_points", [])])
+    pts.append((end_data['x'], end_data['y']))
 
-    plot_hierarchical_graph(create_duct_graph(duct_systems[4]), use_hierarchy_pos=True, orthogonal_edges=True)
+    return LineString(pts)
 
-    duct_graphs = []
-    for idx, system_data in duct_systems.items():
-        # Clean initial data
-        if len(system_data["segments"]) > 0:
+def find_root(G: nx.DiGraph) -> str:
+    """
+    Determine a good root for a traversal by starting at the first branch point and
+    moving upstream until a node with either no predecessor or multiple predecessors is found.
 
-            # main branch node is the first branch point
-            main_branch_node = list(system_data["branch_points"].keys())[0]
+    Parameters
+    ----------
+    G : nx.DiGraph
+        A directed graph representing the duct system.
 
-            # Simplify the duct system
-            try:
-                system_data = simplify_duct_system(system_data, main_branch_node)
-            except ValueError as e:
-                warnings.warn(f"System {idx}: {e}")
-                continue
+    Returns
+    -------
+    str
+        The root node.
+    """
+    if not G.nodes:
+        raise ValueError("Graph is empty; cannot determine a root.")
 
-            # Create graph from the simplified duct system
-            G = create_duct_graph(system_data)
+    # Start with the first branch point.
+    current_node = list(G.nodes())[0]
+
+    # Move upstream while there predecessors.
+    while len(list(G.predecessors(current_node))) >= 1:
+        current_node = list(G.predecessors(current_node))[0]
+
+    print(f"Using branch point '{current_node}' as root")
+    return current_node
 
 
-            duct_graphs.append(G)
+def select_biggest_duct_system(duct_systems: dict) -> tuple:
+    """
+    Select the duct system with the most branch points from a dictionary of duct systems.
+    """
+    selected_index = None
+    max_bps = 0
 
-    plot_hierarchical_graph(duct_graphs[0], use_hierarchy_pos=True, orthogonal_edges=True, vert_gap=1, vert_length=1)
-    plt.show()
+    for key, system in duct_systems.items():
+        num_bps = len(system.get("branch_points", {}))
+        if num_bps > max_bps:
+            max_bps = num_bps
+            selected_index = key
+
+    if selected_index is None:
+        raise ValueError("No duct systems with branch points were found.")
+
+    print(f"Using network with key '{selected_index}' as the graph")
+    return duct_systems[selected_index]
+

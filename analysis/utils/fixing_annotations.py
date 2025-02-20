@@ -1,104 +1,93 @@
 import networkx as nx
-from analysis.utils.loading_saving import create_directed_duct_graph
-import warnings
+from analysis.utils.loading_saving import find_root
+from typing import Dict, Any, Optional, Set
 
-def simplify_duct_system(duct_system, main_branch_node):
+def simplify_graph(G_dir: nx.DiGraph, main_branch_node: Optional[str] = None) -> nx.DiGraph:
     """
-    Simplify the duct system by removing intermediate nodes (nodes with only one child)
-    and ensuring all nodes are connected to the main branch.
+    Simplify a directed duct graph by iteratively removing intermediate nodes
+    (nodes with exactly one incoming and one outgoing edge) except the main branch node.
+    When a node is removed, a new edge is added that merges the properties of the two edges.
 
     Parameters
     ----------
-    duct_system : dict
-        Dictionary containing "branch_points" and "segments".
-    main_branch_node : str
-        The identifier of the main branch node (e.g., "bp0").
+    G_dir : nx.DiGraph
+        The original directed duct graph.
+    main_branch_node : Optional[str]
+        If not provided, determine a root automatically.
 
     Returns
     -------
-    dict
-        The simplified duct system.
+    nx.DiGraph
+        A new directed graph with intermediate nodes removed.
     """
-    # Create a graph from the duct system
-    G = create_directed_duct_graph(duct_system)
-
-    # Ensure the main_branch_node exists
-    if main_branch_node not in G:
+    # Suppose find_root is a function that determines a good root (BFS) from the graph.
+    if main_branch_node is None:
+        main_branch_node = find_root(G_dir)
+    if main_branch_node not in G_dir:
         raise ValueError(f"Main branch node '{main_branch_node}' not found in the duct system.")
 
-    # Simplify the graph by removing intermediate nodes
-    G_simplified = nx.Graph(G)  # Make a copy to avoid modifying the original graph
+    G_clean = G_dir.copy()
+    nodes_removed = True
+    while nodes_removed:
+        nodes_removed = False
+        # Candidate nodes have one predecessor and one successor.
+        candidates = [node for node in list(G_clean.nodes())
+                      if node != main_branch_node and G_clean.in_degree(node) == 1 and G_clean.out_degree(node) == 1]
+        for node in candidates:
+            pred = next(G_clean.predecessors(node))
+            succ = next(G_clean.successors(node))
+            if pred == succ:
+                continue
 
-    # Identify nodes to remove: degree 2 and not the main branch node
-    nodes_to_remove = [n for n, d in G_simplified.degree() if d == 2 and n != main_branch_node]
+            # Create a new segment name and merge properties as needed.
+            new_segment_name = f"{pred}to{succ}"
+            new_edge_data = {"segment_name": new_segment_name}
+            # (Optionally, merge other attributes from edges pred->node and node->succ)
 
-    for node in nodes_to_remove:
-        neighbors = list(G_simplified.neighbors(node))
-        if len(neighbors) != 2:
-            continue  # Safety check
+            if not G_clean.has_edge(pred, succ):
+                G_clean.add_edge(pred, succ, **new_edge_data)
 
-        u, v = neighbors
+            # Remove the intermediate node (which also removes its incident edges).
+            G_clean.remove_node(node)
+            nodes_removed = True
 
-        # Retrieve segment names for the connecting segments
-        seg_u = None
-        seg_v = None
-        for seg_name, seg_data in duct_system["segments"].items():
-            if (seg_data["start_bp"] == u and seg_data["end_bp"] == node) or \
-               (seg_data["start_bp"] == node and seg_data["end_bp"] == u):
-                seg_u = seg_name
-            if (seg_data["start_bp"] == v and seg_data["end_bp"] == node) or \
-               (seg_data["start_bp"] == node and seg_data["end_bp"] == v):
-                seg_v = seg_name
+    return G_clean
 
-        # Remove the intermediate node
-        G_simplified.remove_node(node)
 
-        # Add a new segment connecting u and v
-        new_seg_name = f"{seg_u}_{seg_v}_simplified"
-        G_simplified.add_edge(u, v, segment_name=new_seg_name)
-
-        # Remove old segments from duct_system
-        if seg_u:
-            del duct_system["segments"][seg_u]
-        if seg_v:
-            del duct_system["segments"][seg_v]
-
-        # Add the new simplified segment
-        duct_system["segments"][new_seg_name] = {
-            "start_bp": u,
-            "end_bp": v
-            # Add other necessary attributes here if needed
-        }
-
-    # Update branch points by removing the simplified intermediate nodes
-    for node in nodes_to_remove:
-        if node in duct_system["branch_points"]:
-            del duct_system["branch_points"][node]
-
-    # Check connectivity to the main branch node
-    connected_nodes = nx.node_connected_component(G_simplified, main_branch_node)
-    all_nodes = set(G_simplified.nodes())
-    if connected_nodes != all_nodes:
-        disconnected = all_nodes - connected_nodes
-        warnings.warn(
-            f"The following nodes are not connected to the main branch '{main_branch_node}': {disconnected}"
-        )
-
-    return duct_system
-
-def connect_component_to_main(G, main_component, comp_component, system_data, coord_tol=10):
+def connect_component_to_main(G: nx.Graph,
+                              main_component: Set[str],
+                              comp_component: Set[str],
+                              coord_tol: float = 10) -> bool:
     """
     Attempt to unify a disconnected component into the main network by merging branch points
-    that have essentially the same coordinates (within coord_tol).
+    that have essentially the same coordinates (within coord_tol). Branch point coordinates
+    are stored as node attributes "x", "y", and optionally "z" (defaulting to 0 if absent).
+
+    Parameters
+    ----------
+    G : nx.Graph
+        The undirected graph of the duct system.
+    main_component : Set[str]
+        The set of nodes in the main component.
+    comp_component : Set[str]
+        The set of nodes in the disconnected component.
+    coord_tol : float, optional
+        Tolerance for coordinate matching, by default 10.
+
+    Returns
+    -------
+    bool
+        True if a merge was performed; False otherwise.
     """
-    # Extract coordinates for main_component
+    # Build coordinates for main component nodes.
     main_coords = {
         node: (
-            system_data["branch_points"][node]["x"],
-            system_data["branch_points"][node]["y"],
-            system_data["branch_points"][node]["z"]
+            G.nodes[node].get("x"),
+            G.nodes[node].get("y"),
+            G.nodes[node].get("z", 0)
         )
         for node in main_component
+        if "x" in G.nodes[node] and "y" in G.nodes[node]
     }
 
     def same_coord(p1, p2):
@@ -109,12 +98,15 @@ def connect_component_to_main(G, main_component, comp_component, system_data, co
     match_node_main = None
     match_node_comp = None
 
-    # Try to find a matching node by coordinates
+    # Look for a node in comp_component with matching coordinates.
     for cnode in comp_component:
-        cx = system_data["branch_points"][cnode]["x"]
-        cy = system_data["branch_points"][cnode]["y"]
-        cz = system_data["branch_points"][cnode]["z"]
-        comp_coord = (cx, cy, cz)
+        if "x" not in G.nodes[cnode] or "y" not in G.nodes[cnode]:
+            continue
+        comp_coord = (
+            G.nodes[cnode].get("x"),
+            G.nodes[cnode].get("y"),
+            G.nodes[cnode].get("z", 0)
+        )
         for mnode, mcoord in main_coords.items():
             if same_coord(comp_coord, mcoord):
                 match_node_main = mnode
@@ -124,27 +116,24 @@ def connect_component_to_main(G, main_component, comp_component, system_data, co
             break
 
     if match_node_main is None:
-        # No match found
+        # No matching branch point found.
         return False
 
-    # Unify nodes
-    # 1. Update segments in system_data
-    for seg_name, seg_data in system_data['segments'].items():
-        if seg_data['start_bp'] == match_node_comp:
-            seg_data['start_bp'] = match_node_main
-        if seg_data['end_bp'] == match_node_comp:
-            seg_data['end_bp'] = match_node_main
-
-    # 2. Move edges from match_node_comp to match_node_main in the graph
+    # Rewire edges: For every neighbor of match_node_comp,
+    # add an edge from match_node_main if it doesn't exist.
     neighbors = list(G.neighbors(match_node_comp))
     for nbr in neighbors:
+        if nbr == match_node_main:
+            continue  # Skip self-loop.
         edge_data = G.get_edge_data(match_node_comp, nbr)
         if not G.has_edge(match_node_main, nbr):
             G.add_edge(match_node_main, nbr, **edge_data)
+        else:
+            # Optionally, merge edge attributes if needed.
+            pass
         G.remove_edge(match_node_comp, nbr)
 
-    # Remove the old node
+    # Remove the merged node.
     G.remove_node(match_node_comp)
-    del system_data["branch_points"][match_node_comp]
 
     return True

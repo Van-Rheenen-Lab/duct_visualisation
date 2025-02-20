@@ -1,62 +1,63 @@
 import networkx as nx
 from .plotting_trees import get_segment_color
 
-def plot_3d_system(G, system_data, annotation_to_color):
+def plot_3d_system(G, annotation_to_color):
     import plotly.graph_objects as go
     import plotly.express as px
 
+    # Use Plotly's qualitative color scale (if needed)
     color_scale = px.colors.qualitative.Plotly
     connected_components = list(nx.connected_components(G.to_undirected()))
 
     fig = go.Figure()
 
-    # Plot edges per connected component
-    for i, component in enumerate(connected_components):
+    # Loop over connected components and edges
+    for component in connected_components:
         for u, v, data in G.edges(data=True):
             if u in component and v in component:
-                x1 = system_data["branch_points"][u]["x"]
-                y1 = system_data["branch_points"][u]["y"]
-                z1 = system_data["branch_points"][u]["z"]
-                x2 = system_data["branch_points"][v]["x"]
-                y2 = system_data["branch_points"][v]["y"]
-                z2 = system_data["branch_points"][v]["z"]
+                # Extract branch point coordinates directly from graph nodes.
+                x1 = G.nodes[u].get("x")
+                y1 = G.nodes[u].get("y")
+                z1 = G.nodes[u].get("z", 0)  # default to 0 if not provided
+                x2 = G.nodes[v].get("x")
+                y2 = G.nodes[v].get("y")
+                z2 = G.nodes[v].get("z", 0)
 
-                segment_name = data.get('segment_name', None)
-                c = 'black'
-                if segment_name and 'segments' in system_data:
-                    segment_data = system_data['segments'].get(segment_name, None)
-                    if segment_data:
-                        c = get_segment_color(segment_data, annotation_to_color)
+                # Use the stored segment name or default to "u_to_v"
+                segment_name = data.get("segment_name", f"{u}_to_{v}")
+                # Determine the color using edge properties.
+                c = get_segment_color(data, annotation_to_color)
+
+                # Use the edge's annotation (if any) as the trace name.
+                annotation_label = data.get("properties", {}).get("Annotation", segment_name)
 
                 fig.add_trace(
                     go.Scatter3d(
                         x=[x1, x2],
                         y=[y1, y2],
                         z=[z1, z2],
-                        mode='lines',
-                        # set size to 0 to avoid markers at the end of the line
+                        mode="lines",
                         marker=dict(size=0, color=c),
                         line=dict(color=c, width=4),
-                        name= segment_data['properties'].get('Annotation', segment_name) if segment_data else segment_name
+                        name=annotation_label
                     )
                 )
 
+    fig.update_layout(scene=dict(aspectmode="cube"), title="3D Plot of Duct System")
 
-    fig.update_layout(scene=dict(aspectmode='cube'), title="3D Plot of Duct System")
-
-    # show labels
-    for node, data in system_data["branch_points"].items():
-        x = data["x"]
-        y = data["y"]
-        z = data["z"]
+    # Plot branch points with labels
+    for node, data in G.nodes(data=True):
+        x = data.get("x")
+        y = data.get("y")
+        z = data.get("z", 0)
         fig.add_trace(
             go.Scatter3d(
                 x=[x],
                 y=[y],
                 z=[z],
-                mode='markers',
-                marker=dict(size=0, color='red'),
-                text=node,
+                mode="markers+text",
+                marker=dict(size=4, color="red"),
+                text=[str(node)],
                 name="Branch Point",
                 showlegend=False
             )
