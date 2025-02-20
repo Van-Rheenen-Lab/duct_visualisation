@@ -781,6 +781,35 @@ class DuctSystemGUI(QMainWindow):
                     branch_points_to_draw[segment.start_bp] = start_bp
                     branch_points_to_draw[segment.end_bp] = end_bp
 
+            if is_active and self.current_point_name:
+                active_bp = duct_system.get_branch_point(self.current_point_name)
+                if active_bp and self.current_point_name not in branch_points_to_draw:
+                    # Compute the color using the same delta_z logic
+                    display_point = QPointF(active_bp["location"].x() * self.scale_factor,
+                                            active_bp["location"].y() * self.scale_factor)
+                    delta_z = active_bp['z'] - self.current_z
+                    max_delta_z = 5
+                    delta_z_capped = max(-max_delta_z, min(delta_z, max_delta_z))
+                    hue_start = 0
+                    hue_middle = 120
+                    hue_end = 240
+                    if delta_z_capped == 0:
+                        hue = hue_middle
+                    elif delta_z_capped > 0:
+                        hue = hue_middle + (delta_z_capped / max_delta_z) * (hue_end - hue_middle)
+                    else:
+                        hue = hue_middle + (delta_z_capped / max_delta_z) * (hue_middle - hue_start)
+                    hue = int(hue) % 360
+                    base_color = QColor.fromHsv(hue, 255, 255)
+                    adjusted_point_size = self.get_adjusted_point_size()
+                    point_item = self.scene.addEllipse(
+                        display_point.x() - (adjusted_point_size / 2),
+                        display_point.y() - (adjusted_point_size / 2),
+                        adjusted_point_size, adjusted_point_size,
+                        QPen(base_color), QBrush(base_color)
+                    )
+                    self.point_items.setdefault(duct_system, {})[self.current_point_name] = point_item
+
             # Draw branch points
             for name, point in branch_points_to_draw.items():
                 point_qt = QPointF(point['location'].x(), point['location'].y())
@@ -888,6 +917,7 @@ class DuctSystemGUI(QMainWindow):
                         self.new_origin_mode = False
                         self.statusBar().showMessage("New origin set.")
                         self.view.setCursor(QCursor(Qt.ArrowCursor))
+                        self.set_active_point(self.current_point_name)
                     else:
                         self.handle_left_click(point)
                 elif event.button() == Qt.RightButton:
@@ -1248,7 +1278,7 @@ class DuctSystemGUI(QMainWindow):
             # Create QGraphicsPolygonItem
             polygon_item = QGraphicsPolygonItem(polygon)
             # Set pen color
-            pen = QPen(self.outline_color, 2)  
+            pen = QPen(self.outline_color, 2)
             polygon_item.setPen(pen)
             # Add to scene
             self.scene.addItem(polygon_item)
