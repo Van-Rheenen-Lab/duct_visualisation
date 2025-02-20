@@ -12,3 +12,6 @@ build using the command: `pyinstaller --onefile --additional-hooks-dir=hooks --h
 
 # Simulation & Visualisation tools
 The rest of the software has been built specificially to visualise the neccesary aspects of the data for the publication, and as such, is in a less flexible state. Work will be done to increase the wider usability of this code.
+
+![image](https://github.com/user-attachments/assets/3aa8698a-a1f8-4127-9a2b-d627fa3bb546)
+![image](https://github.com/user-attachments/assets/ff0a3e95-ccca-4184-a893-ca9a6f8bd891)
