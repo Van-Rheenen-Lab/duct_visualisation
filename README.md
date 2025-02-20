@@ -6,7 +6,7 @@ This repository was build to support the paper:
 
 It contains a GUI to conveniently trace & annotate 2D- and 3D- mammary gland images, multiple methods for visualising these, methods to analyse fluorescent data along the dendrograms, and simulations of stem cell dynamics in mammary gland pubertal development and adult maintainance. 
 
-# Image annotation tool. 
+# Image annotation tool
 The image annotation tool can be run from python directly, or a .exe can be built.
 build using the command: `pyinstaller --onefile --additional-hooks-dir=hooks --hidden-import=imagecodecs duct_tracking_GUI.py` We can also provide the .exe on request.
 
