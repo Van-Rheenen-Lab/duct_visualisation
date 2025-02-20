@@ -13,7 +13,6 @@ import json
 import numpy as np
 import tifffile
 import cv2
-from imagecodecs import zstd_decode
 
 class DuctSystemGUI(QMainWindow):
     def __init__(self):
@@ -118,7 +117,7 @@ class DuctSystemGUI(QMainWindow):
         delete_selected_bp_action.triggered.connect(self.delete_selected_branch_point_and_descendants)
         edit_menu.addAction(delete_selected_bp_action)
 
-        edit_line_color_action = QAction('Edit Line Colors', self)
+        edit_line_color_action = QAction('Edit Default Line Color', self)
         edit_line_color_action.triggered.connect(self.edit_line_colors)
         edit_menu.addAction(edit_line_color_action)
 
@@ -246,14 +245,19 @@ class DuctSystemGUI(QMainWindow):
             self.statusBar().showMessage("Annotations saved successfully.")
 
     def configure_segment_annotations(self):
+        # Close any existing dialog
+        if hasattr(self, 'annotation_config_dialog') and self.annotation_config_dialog.isVisible():
+            self.annotation_config_dialog.close()
+
         dialog = QDialog(self)
         dialog.setWindowTitle("Configure Segment Annotations")
         dialog.resize(400, 300)
 
         layout = QVBoxLayout()
 
-        # List of annotations
+        # Create and clear the list widget
         self.annotations_list_widget = QListWidget()
+        self.annotations_list_widget.clear()
         for annotation_name in self.segment_annotations.keys():
             item = QListWidgetItem(annotation_name)
             keybinding = self.segment_annotations[annotation_name]
@@ -262,7 +266,7 @@ class DuctSystemGUI(QMainWindow):
             self.annotations_list_widget.addItem(item)
         layout.addWidget(self.annotations_list_widget)
 
-        # Buttons
+        # Buttons for add, edit, and remove
         button_layout = QHBoxLayout()
         add_button = QPushButton("Add", dialog)
         add_button.clicked.connect(self.add_segment_annotation)
@@ -275,7 +279,6 @@ class DuctSystemGUI(QMainWindow):
         remove_button = QPushButton("Remove", dialog)
         remove_button.clicked.connect(self.remove_segment_annotation)
         button_layout.addWidget(remove_button)
-
         layout.addLayout(button_layout)
 
         # Close button
@@ -284,8 +287,29 @@ class DuctSystemGUI(QMainWindow):
         layout.addWidget(close_button)
 
         dialog.setLayout(layout)
-        dialog.show()
         self.annotation_config_dialog = dialog
+        result = dialog.exec_()  # Modal dialog
+
+        # After closing the dialog, refresh the segment drawings so the new colors take effect
+        self.redraw_all_segments()
+
+    def redraw_all_segments(self):
+        # Clear current segment graphics (but not the entire scene)
+        for duct_system, segments in self.segment_items.items():
+            for segment_name, segment_lines in segments.items():
+                for line_item in segment_lines:
+                    self.scene.removeItem(line_item)
+        self.segment_items.clear()
+
+        # Redraw each segment using updated annotation colors
+        for duct_system in self.duct_systems:
+            for segment_name, segment in duct_system.segments.items():
+                self.draw_segment_with_intermediates(
+                    segment.start_bp, segment.end_bp,
+                    list(segment.internal_points),
+                    color_key=segment_name,
+                    duct_system=duct_system
+                )
 
     def add_segment_annotation(self):
         annotation_name, ok = QInputDialog.getText(self, "Add Annotation", "Enter annotation name:")
@@ -353,17 +377,24 @@ class DuctSystemGUI(QMainWindow):
                     # Keep the old color
                     self.annotation_colors[new_name] = self.annotation_colors.get(old_name, Qt.red)
 
-                # Remove the old color if the name changed
+                # Remove the old color mapping if the name changed
                 if old_name != new_name and old_name in self.annotation_colors:
                     del self.annotation_colors[old_name]
 
-                # Update the segment annotation
+                # Update the annotation mapping
                 del self.segment_annotations[old_name]
                 self.segment_annotations[new_name] = new_key
 
+                # Update all segments that use the old annotation name
+                for duct_system in self.duct_systems:
+                    for segment in duct_system.segments.values():
+                        if segment.get_property('Annotation') == old_name:
+                            segment.add_property('Annotation', new_name)
+
                 self.save_config()
                 self.configure_segment_annotations()  # Refresh the dialog
-                self.load_annotations_for_current_z()
+                self.load_annotations_for_current_z()  # Refresh displayed annotations
+                self.redraw_all_segments()  # Recolor segments with the new annotation name
                 QApplication.processEvents()  # Force GUI update
             else:
                 QMessageBox.warning(self, "Input Error", "Invalid keybinding.")
@@ -1148,9 +1179,9 @@ class DuctSystemGUI(QMainWindow):
         if segment:
             annotation = segment.get_property('Annotation')
             if annotation:
-                # Generate a color based on the annotation name
-                color = QColor(abs(hash(annotation)) % 256, abs(hash(annotation + 'g')) % 256,
-                               abs(hash(annotation + 'b')) % 256)
+                # Use the color you selected for this annotation (fallback to default if not set)
+                color = self.annotation_colors.get(annotation, self.default_line_color if hasattr(self,
+                                                                                                  'default_line_color') else Qt.blue)
 
         # If different_style is True, adjust pen style or color
         adjusted_line_thickness = self.get_adjusted_line_thickness()
@@ -1316,6 +1347,7 @@ class DuctSystemGUI(QMainWindow):
                 self.reset_modes()
         elif event.key() == Qt.Key_Backspace:
             self.revert_to_previous_branch_point()
+
         elif event.key() == Qt.Key_Delete:
             self.delete_most_recent_branch()
         elif event.key() == Qt.Key_N:
@@ -1519,16 +1551,20 @@ class DuctSystemGUI(QMainWindow):
         if self.annotation_mode and self.active_segment_name:
             # Map point to original image coordinates
             original_point = QPointF(point.x() / self.scale_factor, point.y() / self.scale_factor)
-            annotation = {'name': self.annotation_mode, 'x': original_point.x(), 'y': original_point.y(),
-                          'z': self.current_z}
+            # Look up the color now and store it as a string (so it’s JSON-serializable)
+            chosen_color = self.annotation_colors.get(self.annotation_mode, Qt.red)
+            annotation = {
+                'name': self.annotation_mode,
+                'x': original_point.x(),
+                'y': original_point.y(),
+                'z': self.current_z,
+                'color': chosen_color.name()  # store the hex color string
+            }
             segment = self.active_duct_system.get_segment(self.active_segment_name)
             if segment:
                 segment.add_annotation(annotation)
-                # Use the color specific to the annotation type
-                color = self.annotation_colors.get(self.annotation_mode, Qt.red)
-                pen = QPen(color, self.get_adjusted_line_thickness())
-                brush = QBrush(color)
-                # Draw the annotation at the displayed coordinates
+                pen = QPen(chosen_color, self.get_adjusted_line_thickness())
+                brush = QBrush(chosen_color)
                 adjusted_point_size = self.get_adjusted_point_size()
                 annotation_item = self.scene.addEllipse(
                     point.x() - (adjusted_point_size / 2),
@@ -1543,12 +1579,18 @@ class DuctSystemGUI(QMainWindow):
 
     def revert_to_previous_branch_point(self):
         if self.current_point_name:
-            # Only revert to previous branch points, not segment points
             segments = list(self.active_duct_system.segments.values())
             for segment in reversed(segments):
                 if segment.end_bp == self.current_point_name:
                     self.set_active_point(segment.start_bp)
                     self.statusBar().showMessage(f"Reverted to previous branch point '{segment.start_bp}'.")
+                    # Clear the intermediate points and temp line
+                    self.clear_intermediate_points()
+                    self.clear_temp_line()
+                    # Capture current mouse position in scene coordinates
+                    mouse_pos = self.view.mapToScene(self.view.mapFromGlobal(QCursor.pos()))
+                    # Redraw the temp line using the new active branch point as the start
+                    self.update_temp_line(mouse_pos)
                     break
             else:
                 self.statusBar().showMessage("No previous branch point to revert to.")
@@ -1641,17 +1683,9 @@ class DuctSystemGUI(QMainWindow):
     def edit_line_colors(self):
         color = QColorDialog.getColor()
         if color.isValid():
-            # Set the default line color
             self.default_line_color = color
-
-            # Update the visual representation of all existing segments
-            for duct_system in self.duct_systems:
-                for segment_name, segment_lines in self.segment_items.get(duct_system, {}).items():
-                    adjusted_line_thickness = self.get_adjusted_line_thickness()
-                    for line_item in segment_lines:
-                        line_item.setPen(QPen(color, adjusted_line_thickness))
-
-            self.statusBar().showMessage("All segment line colors updated.")
+            self.statusBar().showMessage("Default line color updated. Redrawing segments...")
+            self.redraw_all_segments()
 
     def apply_segment_properties(self, dialog, segment):
         segment_type = self.segment_type_input.text()
