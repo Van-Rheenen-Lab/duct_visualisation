@@ -1,49 +1,8 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from shapely.geometry import LineString
-from matplotlib.colors import LinearSegmentedColormap, Normalize
-
-
-def hierarchy_pos(G, root=None, vert_gap=0.2):
-    if root is None:
-        root = list(G.nodes)[0]
-    pos = {}
-    next_x = [-1]
-
-    def recurse(node, depth, parent=None):
-        children = list(G.neighbors(node))
-        if parent is not None and parent in children:
-            children.remove(parent)
-        if len(children) == 0:
-            pos[node] = (next_x[0], - depth * vert_gap)
-            next_x[0] += 1
-        else:
-            child_x = []
-            for child in children:
-                recurse(child, depth + 1, node)
-                child_x.append(pos[child][0])
-            pos[node] = ((min(child_x) + max(child_x)) / 2, - depth * vert_gap)
-
-    recurse(root, 0)
-    return pos
-
-
-def get_line_for_edge(G, u, v):
-    """
-    Build a LineString for the edge between nodes u and v using the node attributes.
-    It uses the 'x' and 'y' coordinates stored on each node and, if present,
-    any internal points stored in the edge's "internal_points" attribute.
-    """
-    start_data = G.nodes[u]
-    end_data = G.nodes[v]
-    pts = [(start_data['x'], start_data['y'])]
-    edge_data = G.get_edge_data(u, v)
-    if edge_data and edge_data.get("internal_points"):
-        pts.extend([(p['x'], p['y']) for p in edge_data.get("internal_points", [])])
-    pts.append((end_data['x'], end_data['y']))
-    return LineString(pts)
-
+from analysis.utils.loading_saving import get_line_for_edge
+from analysis.utils.plotting_trees import hierarchy_pos
 
 def precompute_line_parameters(line):
     line_coords = np.array(line.coords)
@@ -240,28 +199,6 @@ def plot_hierarchical_graph_subsegments(
                 vals = percentages[i, :]
                 color = create_rgb_color_from_percentages(vals)
                 ax.plot([sx, ex], [sy, ey], color=color, linewidth=linewidth, zorder=1)
-
-    # Determine which image channels are used (if any)
-    channel_used = [red_image is not None, green_image is not None, yellow_image is not None]
-    # (Do not overwrite channel_used with [False, False, False])
-    colors_list = ['red', 'green', 'yellow']
-    channel_labels = ['Red (%)', 'Green (%)', 'Yellow (%)']
-    cmaps = []
-    norms = []
-    lbls = []
-    for use, ccol, lbl in zip(channel_used, colors_list, channel_labels):
-        if use:
-            cmap = LinearSegmentedColormap.from_list(f"my_{ccol}", [(0, 'black'), (1, ccol)])
-            norm = Normalize(vmin=0, vmax=100)
-            cmaps.append(cmap)
-            norms.append(norm)
-            lbls.append(lbl)
-
-    for cmap, norm, lbl in zip(cmaps, norms, lbls):
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, orientation='vertical')
-        cbar.set_label(lbl)
 
     if draw_nodes:
         for node in G.nodes():

@@ -70,7 +70,7 @@ if __name__ == "__main__":
             valid_geoms.append(geom)
     duct_polygon = unary_union(valid_geoms)
 
-    # Run BFS-level corridor analysis without external duct_system.
+    # Run branch-level corridor analysis without external duct_system.
     area_by_lvl, positives_by_lvl, pixel_levels = analyze_area_vs_branch_level_multi_corridor(
         G_dir=G_dir,
         root_node=root_node,
@@ -87,11 +87,11 @@ if __name__ == "__main__":
         channel_labels=channel_labels,
         use_log=False
     )
-    plt.savefig("stacked_plot.png", dpi=300)
+    # plt.savefig("stacked_plot.png", dpi=600)
 
-    # Show pixel-level BFS assignment.
+    # Show pixel-level branch assignment.
     max_level = len(area_by_lvl) - 1
     plot_pixel_levels(pixel_levels, max_level)
-    plt.savefig("pixel_levels.png", dpi=600)
+    # plt.savefig("pixel_levels.png", dpi=600)
     plt.show()
     print("Analysis complete!")
