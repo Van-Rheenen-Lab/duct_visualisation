@@ -1,11 +1,10 @@
 import matplotlib.pyplot as plt
 import networkx as nx
-from utils.loading_saving import load_duct_systems, create_directed_duct_graph, save_annotations, create_duct_graph
+from utils.loading_saving import load_duct_systems, create_duct_graph
 from utils.plotting_trees import plot_hierarchical_graph, create_annotation_color_map
 from utils.fixing_annotations import connect_component_to_main
 from utils.plotting_3d import plot_3d_system
 
-# Load duct systems from JSON.
 duct_systems = load_duct_systems(
     r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations example hendrik\Coseq.json"
 )

@@ -1,15 +1,6 @@
-import json
-import numpy as np
-from shapely.geometry import shape, Polygon, LineString
-from shapely.ops import unary_union
-from rasterio.features import rasterize
 from skimage import io
 import matplotlib.pyplot as plt
-from shapely.validation import make_valid
-import networkx as nx
 from collections import deque
-
-# Assume these functions have been updated to work with graph-only data:
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, load_duct_mask
 from analysis.utils.fixing_annotations import simplify_graph
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
