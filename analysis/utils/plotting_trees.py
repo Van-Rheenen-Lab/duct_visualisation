@@ -53,11 +53,18 @@ def create_annotation_color_map(
 def get_segment_color(
         segment_data: Dict[str, Any],
         annotation_to_color: Dict[str, str],
-        segment_color_map: Optional[Dict[str, str]] = None
+        segment_color_map: Optional[Dict[str, str]] = None,
+        is_endpoint: bool = False
 ) -> str:
     """
     Determine the color for a segment based on its metadata.
     Checks an override mapping (segment_color_map) first, then falls back to the annotation color.
+
+    If an annotation is provided:
+      - If it exists in the mapping, its color is returned.
+      - Otherwise, blue (#3689ff) is returned if the segment is an endpoint, or black if not.
+
+    If no annotation is provided, always return black.
     """
     segment_name = segment_data.get('segment_name', None)
     if segment_color_map and segment_name in segment_color_map:
@@ -67,10 +74,13 @@ def get_segment_color(
     ann = properties.get('Annotation', None)
     if isinstance(ann, list) and ann:
         ann = ann[0]  # Use the first annotation if multiple are provided.
-    if ann:
-        return annotation_to_color.get(ann, 'red')
 
-    return 'black'
+    if ann:
+        return annotation_to_color.get(ann, '#3689ff' if is_endpoint else 'black')
+    else:
+        # No annotation provided: always return black.
+        return 'black'
+
 
 def hierarchy_pos(G: nx.Graph, root: Optional[str] = None, vert_gap: float = 0.2) -> Dict[Any, Tuple[float, float]]:
     """
@@ -108,7 +118,8 @@ def plot_hierarchical_graph(
         vert_length: float = 1,
         annotation_to_color: Optional[Dict[str, str]] = None,
         segment_color_map: Optional[Dict[str, str]] = None,
-        linewidth: float = 1.5
+        linewidth: float = 1.5,
+        legend_offset: float = -0.1
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot a hierarchical graph where segment colors are determined by edge metadata.
@@ -128,16 +139,31 @@ def plot_hierarchical_graph(
     ax.set_aspect('equal')
     ax.axis('off')
 
+    # For each edge, determine if it goes to a leaf (child with no children)
     for u, v in G.edges():
         segment_data = G[u][v]
-        segment_name = segment_data.get('segment_name', f"{u}to{v}")
-        c = (get_segment_color(segment_data, annotation_to_color, segment_color_map)
-             if annotation_to_color else 'black')
+        # Determine positions.
         try:
             x1, y1 = pos[u]
             x2, y2 = pos[v]
         except KeyError:
+            print(f"Skipping edge {u} -> {v} due to missing node position.")
             continue
+
+        # Determine which node is deeper (child) using y-coordinate (more negative is deeper).
+        is_endpoint = False
+        if y1 != y2:
+            if y1 < y2:
+                child = u
+            else:
+                child = v
+            # In a tree, a leaf is typically a node with degree 1 (and not the root).
+            if child != root_node and G.degree(child) == 1:
+                is_endpoint = True
+
+        # Get the segment color using our new is_endpoint flag.
+        c = (get_segment_color(segment_data, annotation_to_color, segment_color_map, is_endpoint)
+             if annotation_to_color else 'black')
 
         if orthogonal_edges:
             # Ensure top-down orientation.
@@ -156,7 +182,7 @@ def plot_hierarchical_graph(
             legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
                                              markerfacecolor=color, label=ann))
         ax.legend(handles=legend_handles, title='Annotations',
-                  loc='lower center', bbox_to_anchor=(0.5, -0.1))
+                  loc='lower center', bbox_to_anchor=(0.5, legend_offset))
 
     # Add a depth-level scale bar on the left.
     lowest_y = min(y for x, y in pos.values())

@@ -1,7 +1,7 @@
 import networkx as nx
 from .plotting_trees import get_segment_color
 
-def plot_3d_system(G, annotation_to_color):
+def plot_3d_system(G, annotation_to_color, label=True):
     import plotly.graph_objects as go
     import plotly.express as px
 
@@ -27,9 +27,9 @@ def plot_3d_system(G, annotation_to_color):
                 segment_name = data.get("segment_name", f"{u}_to_{v}")
                 # Determine the color using edge properties.
                 c = get_segment_color(data, annotation_to_color)
-
-                # Use the edge's annotation (if any) as the trace name.
                 annotation_label = data.get("properties", {}).get("Annotation", segment_name)
+                # Use the edge's annotation (if any) as the trace name.
+
 
                 fig.add_trace(
                     go.Scatter3d(
@@ -45,6 +45,11 @@ def plot_3d_system(G, annotation_to_color):
 
     fig.update_layout(scene=dict(aspectmode="cube"), title="3D Plot of Duct System")
 
+    if label:
+        mode = "lines+text"
+    else:
+        mode = "lines"
+
     # Plot branch points with labels
     for node, data in G.nodes(data=True):
         x = data.get("x")
@@ -55,7 +60,7 @@ def plot_3d_system(G, annotation_to_color):
                 x=[x],
                 y=[y],
                 z=[z],
-                mode="markers+text",
+                mode=mode,
                 marker=dict(size=4, color="red"),
                 text=[str(node)],
                 name="Branch Point",
