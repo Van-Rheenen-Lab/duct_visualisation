@@ -170,13 +170,10 @@ def main():
 
     # Define common parameters for simulation and visualization.
     # For the pubertal clones, we highlight a few selected ones.
-    clone_color_map = {"99": "#ff350e", "40": "#45d555", "26": "#40aef1"}
+    clone_color_map = {"41": "#ff350e", "40": "#45d555", "55": "#40aef1"}
     subsegments = 100
     vert_gap = 3.5
 
-    # --------------------------
-    # Real Data Visualisation
-    # --------------------------
     if do_real_visualization:
         json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\hierarchy tree.json'
         duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
@@ -284,7 +281,7 @@ def main():
         else:
             selected_ducts = []
 
-
+        print(selected_ducts)
 
 
         # If simulation visualization is enabled, generate the simulation plots.
@@ -313,24 +310,23 @@ def main():
                 title="Simulation (Puberty): Ducts per Branch Level",
                 save_path=os.path.join(output_folder, "puberty_branch_level_distribution.png") if do_save_figures else None
             )
-            # ------------------------------------------------------------------
-            #  Selected ducts – zoom-style truncation, using the same root as zoom
-            # ------------------------------------------------------------------
+
             root_trunc = selected_ducts[0]  # the proximal duct
+            print(f"Truncating at root duct: {root_trunc}")
             trunc_nodes = nx.descendants(G_puberty, root_trunc) | {root_trunc}
             G_puberty_trunc = G_puberty.subgraph(trunc_nodes).copy()
 
             plot_selected_ducts(
                 G_puberty_trunc,
                 selected_ducts,
-                vert_gap=2,
+                vert_gap=1.8,
                 root_node=root_trunc,
-                linewidth = 15
+                linewidth = 14
             )
             plt.title("Simulated Puberty: Selected Ducts (truncated branch)")
 
             fig_selected = plt.gcf()
-            fig_selected.set_size_inches(35, 12)
+            fig_selected.set_size_inches(70, 12)
 
             if fig_selected.legend():
                 fig_selected.legend().remove()
@@ -408,7 +404,7 @@ def main():
                 )
 
     if do_simulated_visualization and do_zoom_plots:
-        zoom_duct_id = 183
+        zoom_duct_id = 190
 
         # Zoom for Puberty (using pubertal clones)
         if zoom_duct_id in G_puberty.nodes():
@@ -424,7 +420,7 @@ def main():
                 use_hierarchy_pos=True,
                 vert_gap=2,
                 orthogonal_edges=True,
-                linewidth=18,
+                linewidth=15,
                 draw_nodes=False
             )
             plt.title(f"Zoomed Simulated Ductal Tree after Puberty (Zoom: Duct {zoom_duct_id})")
@@ -452,7 +448,7 @@ def main():
                 use_hierarchy_pos=True,
                 vert_gap=2,
                 orthogonal_edges=True,
-                linewidth=18,
+                linewidth=15,
                 draw_nodes=False
             )
             plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Pubertal Clones) (Zoom: Duct {zoom_duct_id})")
@@ -474,7 +470,7 @@ def main():
                 use_hierarchy_pos=True,
                 vert_gap=2,
                 orthogonal_edges=True,
-                linewidth=18,
+                linewidth=15,
                 draw_nodes=False
             )
             plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Adult Clones) (Zoom: Duct {zoom_duct_id})")
@@ -570,7 +566,7 @@ def main():
             plt.show()
 
     if do_single_duct_plot:
-        duct_id = 233  # duct to visualize
+        duct_id = 2098  # duct to visualize
         n_iterations = 33  # number of adulthood iterations
 
         # Add the final state of puberty (pubertal clones are stored as "duct_clones" in G_puberty)

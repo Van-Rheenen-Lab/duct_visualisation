@@ -182,7 +182,7 @@ def plot_hierarchical_graph(
             legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
                                              markerfacecolor=color, label=ann))
         ax.legend(handles=legend_handles, title='Annotations',
-                  loc='lower center', bbox_to_anchor=(0.5, legend_offset))
+                  loc='lower center', bbox_to_anchor=(0.6, legend_offset))
 
     # Add a depth-level scale bar on the left.
     lowest_y = min(y for x, y in pos.values())
