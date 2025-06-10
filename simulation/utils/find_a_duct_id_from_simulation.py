@@ -1,13 +1,6 @@
-import os
 import random
 import matplotlib.pyplot as plt
-import networkx as nx
-
-# Import your simulation function.
-from puberty import simulate_ductal_tree
-
-# Import your plotting functions.
-# Assuming these functions are available from your module (e.g., analysis.utils.plotting_trees)
+from simulation.puberty import simulate_ductal_tree
 from analysis.utils.plotting_trees import hierarchy_pos, plot_hierarchical_graph
 
 # Global variables for interactive highlighting

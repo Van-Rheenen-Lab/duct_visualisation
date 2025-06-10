@@ -58,33 +58,38 @@ def plotting_ducts(G, vert_gap=2, color_map=None, root_node=None, clone_attr="du
     plt.tight_layout()
     return fig, ax
 
-
-def plot_selected_ducts(G, selected_ducts, vert_gap=2, color_map=None):
+def plot_selected_ducts(G,
+                        selected_ducts,
+                        vert_gap=2,
+                        color_map=None,
+                        root_node=None,
+                        linewidth = 0.9
+                        ):
     """
-    Plots a hierarchical ductal tree highlighting segments whose child node is in the list
-    `selected_ducts`. Each highlighted segment is annotated with its child node ID.
-
-    This version updates the edge attributes directly.
+    Plots a hierarchical ductal tree highlighting segments whose child node is
+    in `selected_ducts`.  Each highlighted segment is annotated with that node ID.
     """
-    for (parent, child) in G.edges():
-        segment_name = f"duct_{parent}_to_{child}"
-        G[parent][child]["segment_name"] = segment_name
-        # Annotate with the child node's ID if the child is in the selected list.
-        if child in selected_ducts:
-            G[parent][child]["properties"] = {"Annotation": str(child)}
-        else:
-            G[parent][child]["properties"] = {"Annotation": ""}
+    for parent, child in G.edges():
+        seg_name = f"duct_{parent}_to_{child}"
+        G[parent][child]["segment_name"] = seg_name
+        G[parent][child]["properties"] = (
+            {"Annotation": str(child)} if child in selected_ducts
+            else {"Annotation": ""}
+        )
 
     if not color_map:
-        color_map = create_annotation_color_map(G, fixed_annotation=None, colormap_name="tab10")
+        color_map = create_annotation_color_map(G,
+                                                fixed_annotation=None,
+                                                colormap_name="tab10")
 
     fig, ax = plot_hierarchical_graph(
         G,
+        root_node=root_node,
         use_hierarchy_pos=True,
         orthogonal_edges=True,
         vert_gap=vert_gap,
         annotation_to_color=color_map,
-        linewidth=0.9
+        linewidth=linewidth
     )
 
     plt.title("Selected Ducts Highlighted by Duct ID")

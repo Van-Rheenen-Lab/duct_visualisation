@@ -43,7 +43,7 @@ scaler = StandardScaler()
 data_scaled = scaler.fit_transform(data)
 
 # Define a threshold to consider a VAF "positive"
-vaf_threshold = 0.2
+vaf_threshold = 0
 # Define pattern order
 pattern_order = [
     "1000","0100","0010","0001","1100","1010","1001",

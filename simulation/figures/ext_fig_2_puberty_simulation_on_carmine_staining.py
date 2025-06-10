@@ -1,10 +1,11 @@
-from puberty import simulate_ductal_tree_on_existing_graph
+from simulation.puberty import simulate_ductal_tree_on_existing_graph
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph
-from analysis.utils.fixing_annotations import simplify_duct_system
+from analysis.utils.fixing_annotations import simplify_graph
 import matplotlib.pyplot as plt
 import numpy as np
-from plotting_simulated_ducts import plotting_ducts
+from simulation.utils.plotting_simulated_ducts import plotting_ducts
 import random
+
 """ 
 The following script was made 
 """
@@ -13,6 +14,7 @@ if __name__ == "__main__":
     random.seed(42)
 
     # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+    # json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
     json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_carmine\06012025_carminegood images\export files\2516525-slide1_9weeks_branch.json"
     # json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
     graphs = load_duct_systems(json_path)
@@ -33,15 +35,16 @@ if __name__ == "__main__":
     root_node = first_bp
     print(f"Using branch point {root_node} as BFS root")
 
-    duct_clean = simplify_duct_system(graphs[index], root_node)
-    G = create_directed_duct_graph(duct_clean)
+    G = create_directed_duct_graph(graphs[index])
 
+    G = simplify_graph(G)
     G, progress_data = simulate_ductal_tree_on_existing_graph(
         existing_graph=G,
         root_node=root_node,
         bifurcation_prob=0.01,
+        replacement_prob=1,
         initial_side_count=85,
-        initial_center_count=85
+        initial_center_count=85,
     )
 
     iterations = progress_data["iteration"]
@@ -120,5 +123,30 @@ if __name__ == "__main__":
 
     # save picture at 600 dpi with the name 2516525-slide1_9weeks_branch
     plt.savefig('2516525-slide1_9weeks_branch.png', dpi=600)
+
+    import networkx as nx
+
+    node_levels = dict(nx.shortest_path_length(G, source=root_node))
+
+    clones_per_level = {}
+    for parent, child, data in G.edges(data=True):
+        level = node_levels.get(child)
+        clone_ids = data.get("duct_clones", [])
+        unique_count = len(set(clone_ids))
+        clones_per_level.setdefault(level, []).append(unique_count)
+
+    levels = sorted(clones_per_level)
+    avg_unique_stems = [np.mean(clones_per_level[L]) for L in levels]
+
+    # Delete the first 10 levels
+    levels = levels[10:]
+    avg_unique_stems = avg_unique_stems[10:]
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(levels, avg_unique_stems, marker="o")
+    plt.xlabel("Branch level")
+    plt.ylabel("Average # progenitor MaSCs per duct segment")
+    plt.title("Clonal diversity across branch levels")
+    plt.tight_layout()
 
     plt.show()

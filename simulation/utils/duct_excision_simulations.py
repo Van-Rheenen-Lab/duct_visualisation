@@ -3,11 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
-
-# Import your custom simulation and plotting
-from puberty import simulate_ductal_tree
-from adulthood import simulate_adulthood
-from plotting_simulated_ducts import plot_selected_ducts
+from simulation.puberty import simulate_ductal_tree
+from simulation.adulthood import simulate_adulthood
+from simulation.utils.plotting_simulated_ducts import plot_selected_ducts
 
 
 def gather_clone_fractions_for_selected_ducts(G, selected_ducts, puberty_clones=True, restrict_to_selected=False):
@@ -101,8 +99,6 @@ def main():
 
     last_bp = list(G_puberty.nodes)[-1]
     selected_ducts = [last_bp]
-
-
 
     # Don't do the first few (5), because we don't analyse that in our own experimental data.
     # Also take one in 3 to make sure we have no local overlaps

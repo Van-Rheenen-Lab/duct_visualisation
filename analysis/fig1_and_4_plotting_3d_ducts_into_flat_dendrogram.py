@@ -2,14 +2,15 @@ import os
 import matplotlib.pyplot as plt
 import networkx as nx
 from utils.loading_saving import load_duct_systems, create_duct_graph, select_biggest_duct_system
-from utils.plotting_trees import plot_hierarchical_graph, create_annotation_color_map
+from utils.plotting_trees import plot_hierarchical_graph
 from utils.fixing_annotations import connect_component_to_main
 from utils.plotting_3d import plot_3d_system
 
 
 """
 The challenge of the following script is that the annotations were not really connected. So sometimes there's 2 points
-at the same location, but they are not connected. This script tries to connect them, and plot the duct system.
+at the same location, which are supposed to be the same point. This script tries to connect them, and plot the duct 
+system in 3d and 2d.
 """
 
 
@@ -131,11 +132,35 @@ files_info = [
     ),
     (
         r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations example hendrik\Aseq3_4.json",
-        {"19": "#39FF14", "23": "#f528f2", "25": "#FFA500", "24": "#FF0000", "Endpoint": "#3689ff"},
+        {"DCIS": "#FF0000","Lesion": "#FF0000", "TDLU": "#0080FE"},
         "bp285",
         2,
         -1,
         (8, 6)
+    ),
+    (
+        r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations hendrik\A15_use-bp298-as-origin.json",
+        {"DCIS": "#FF0000","Lesion": "#FF0000", "TDLU": "#0080FE"},
+        "bp298",
+        2,
+        -0.6,
+        (18, 14)
+    ),
+    (
+        r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations hendrik\T19-11890.json",
+        {"DCIS": "#FF0000","Lesion": "#FF0000", "TDLU": "#0080FE"},
+        None,
+        2,
+        -0.8,
+        (4, 5)
+    ),
+    (
+        r"I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\duct annotations hendrik\T18-07933.json",
+        {"DCIS": "#FF0000","Lesion": "#FF0000", "TDLU": "#0080FE"},
+        None,
+        2,
+        -1,
+        (2, 6)
     )
 ]
 
@@ -144,5 +169,7 @@ for file_path, annotation, root_node, lw, legend_off, fsize in files_info:
     process_duct_system(file_path, annotation, root_node,
                         linewidth=lw, legend_offset=legend_off, fig_size=fsize)
     process_duct_system_3d(file_path, annotation)
+
+# save all figures as png with dpi 600
 
 plt.show()

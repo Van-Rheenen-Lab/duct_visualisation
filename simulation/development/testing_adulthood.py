@@ -2,10 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 
-from puberty import simulate_ductal_tree
-from adulthood import simulate_adulthood
-from plotting_simulated_ducts import plotting_ducts
-
+from simulation.puberty import simulate_ductal_tree
+from simulation.adulthood import simulate_adulthood
+from simulation.utils.plotting_simulated_ducts import plotting_ducts
+from scipy.special import erfc
+from scipy.optimize import curve_fit
 
 def plot_stack_counts_with_fixed_ids(iterations, dist_series, all_ids, title, color_map=None):
     """
@@ -68,7 +69,9 @@ plt.title("Ductal Tree at after Puberty, before Adulthood")
 
 
 # 2) Run adulthood simulation
-G, progress_data_adult = simulate_adulthood(G, rounds=33)
+remodel_length = 20 # note that this is in stem cells. So real cells is *10
+remodel_prob = 0.1
+G, progress_data_adult = simulate_adulthood(G, rounds=33, remodel_length=remodel_length, remodel_prop=remodel_prob)
 plotting_ducts(G, vert_gap=5, color_map=color_map)
 plt.title("Ductal Tree at after Adulthood")
 
@@ -199,4 +202,55 @@ plt.xlabel("Iteration")
 plt.ylabel("Average Clones per Duct")
 plt.title("Average Unique Pubertal IDs per Duct Over Time")
 
+# Your clone counts (scaled by 10)
+clone_counts = np.array(list(adult_adult_dists[-1].values()))
+clone_counts *= 10
+
+# Define the lognormal survival model (theoretical cumulative probability)
+def lognormal_survival(x, mu, sigma):
+    return 0.5 * erfc((np.log(x) - mu) / (np.sqrt(2) * sigma))
+
+sizes_fit = np.arange(1, int(remodel_length*8)+1)
+
+# Compute the empirical cumulative probability over the fitting range
+empirical_cum_prob_fit = np.array([np.sum(clone_counts >= s) / len(clone_counts) for s in sizes_fit])
+
+# Provide an initial guess for mu and sigma based on the truncated data
+initial_mu = np.mean(np.log(clone_counts[clone_counts <= remodel_length*8]))
+initial_sigma = np.std(np.log(clone_counts[clone_counts <= remodel_length*8]))
+
+# Fit the lognormal model using curve_fit
+popt, pcov = curve_fit(
+    lognormal_survival, sizes_fit, empirical_cum_prob_fit,
+    p0=[initial_mu, initial_sigma]
+)
+mu_fit, sigma_fit = popt
+
+
+max_clone_size = clone_counts.max()
+sizes_full = np.arange(1, max_clone_size + 1)
+empirical_cum_prob_full = np.array([np.sum(clone_counts >= s) / len(clone_counts) for s in sizes_full])
+
+# Now compute the theoretical curve using the fitted parameters over the fitting range
+theoretical_cum_prob_fit = lognormal_survival(sizes_full, mu_fit, sigma_fit)
+
+# Plot everything
+plt.figure(figsize=(8, 5))
+# Empirical data (full range)
+plt.loglog(sizes_full, empirical_cum_prob_full, marker='o', ls='None', label="Simulated Data")
+# Fitted theoretical curve over the fitting range (1 to 50)
+plt.loglog(sizes_full, theoretical_cum_prob_fit, marker=None, ls='-', linewidth=3.0, label="Lognormal Fit")
+
+# vline at 100
+plt.axvline(x=remodel_length*10, color='red', linestyle='--', label="Expected departure from lognormal")
+
+plt.xlabel("Clone Size")
+plt.ylabel("Cumulative Probability")
+plt.title("Log-Log Plot of Cumulative Clone Size Distribution")
+plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+plt.legend()
+plt.tight_layout()
 plt.show()
+
+# Optionally, print the fitted parameters for inspection
+print(f"Fitted mu: {mu_fit}, Fitted sigma: {sigma_fit}")

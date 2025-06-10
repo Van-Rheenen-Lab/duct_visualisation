@@ -2,134 +2,111 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
+from pathlib import Path
+file_path = Path(r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\sequencing_data\mutation_matrix_updated_full.txt')
 
-file_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\sequencing_data\matrix_mutations_updates.txt'
+# first line has only the sample names; use it to build the column list
+with file_path.open() as fh:
+    header_line = fh.readline().strip()
+sample_names = [s.strip('"') for s in header_line.split()]
+cols = ['Mutation'] + sample_names                           # 7 columns total
 
-# Load the data
-df = pd.read_csv(file_path, delimiter=r'\s+', header=0, quotechar='"')
-
-# Select sample columns to process
-sample_columns = [f'wgs_S11340Nr{i}' for i in range(4, 8)]
-
-# Extract ALT and TOTAL from each sample column
-for col in sample_columns:
-    df[f'{col}_ALT'] = df[col].str.split('/').str[0].astype(float)
-    df[f'{col}_Total'] = df[col].str.split('/').str[1].astype(float)
-
-# Drop the original sample columns
-df = df.drop(columns=sample_columns)
-
-# Prepare a cleaned DataFrame with ALT and TOTAL columns
-df_clean = df[
-    [f'{col}_ALT' for col in sample_columns] +
-    [f'{col}_Total' for col in sample_columns]
-].copy()
-
-# Compute VAF for samples
-for col in sample_columns:
-    alt_col = f'{col}_ALT'
-    total_col = f'{col}_Total'
-    vaf_col = f'{col}_VAF'
-    df_clean[vaf_col] = df_clean[alt_col] / df_clean[total_col].replace(0, pd.NA)
-
-df_clean = df_clean.fillna(0.0)
-
-# Only keep VAF columns for clustering/visualization
-vaf_columns = [f'{col}_VAF' for col in sample_columns]
-data = df_clean[vaf_columns]
-
-# Remove rows that do not have at least 1 column with VAF > 0
-mask = (data > 0).sum(axis=1) >= 1
-data = data[mask]
-df_clean = df_clean.loc[mask]
+df = pd.read_csv(
+    file_path,
+    sep=r'\s+',
+    engine='python',
+    quoting=3,
+    names=cols,
+    skiprows=1
+)
 
 
-# Filter all rows that have no values above 0.1, because the whole dataset was filtered on that as well
-mask = (data > 0.1).sum(axis=1) > 0
-data = data[mask]
-df_clean = df_clean.loc[mask]
-original_len = len(df_clean)
+orig_samples = ['HM6', 'HM8', 'HM11', 'HM15']
+sample_columns = orig_samples[-1:] + orig_samples[:-1]        # cyclic right‑shift
+data = df[sample_columns].astype(float)                       # VAF matrix (N×4)
 
-# Calculate the fraction of rows that have >= 2 and <= 3 positive VAFs
-mask2 = ((data > 0).sum(axis=1) >= 2) & ((data > 0).sum(axis=1) <= 3)
-df_clean2 = df_clean.loc[mask2]
 
-# calculate average VAF for fully positive rows
-mask3 = (data > 0).sum(axis=1) == 4
-avg_vaf = data[mask3].mean(axis=1)
-print(f"Average VAF for fully positive: {avg_vaf.mean()}")
-# plot histogram of average VAF for fully positive rows from 0 to 1
-vals_flat = data[mask3].to_numpy().flatten()
-plt.hist(vals_flat, bins=15, range=(0, 1))
-# draw average VAF line
-plt.axvline(avg_vaf.mean(), color='r', linestyle='dashed', linewidth=1)
-# make legend
-plt.legend([f'Average VAF: {avg_vaf.mean():.4}'])
+mask_nonzero = (data > 0.1).any(axis=1)
+df = df.loc[mask_nonzero]
+data = data.loc[df.index]
+original_len = len(df)
+
+# quick metrics / histograms
+fully_pos = (data > 0).sum(axis=1) == 4
+avg_vaf   = data[fully_pos].mean(axis=1)
+print(f'Average VAF for fully positive: {avg_vaf.mean():.4f}')
+
+print(f"Total number of mutations: {len(df)}")
+
+plt.figure(figsize=(6,4))
+plt.hist(data[fully_pos].to_numpy().ravel(), bins=15, range=(0,1))
+plt.axvline(avg_vaf.mean(), color='r', ls='--')
+plt.legend([f'avg {avg_vaf.mean():.3f}'])
 plt.xlabel('VAF')
 plt.ylabel('Frequency')
 plt.title('VAFs for fully positive mutations')
 
+# fractions (1‑, 2‑3‑, 4‑positive rows)
+for k,label in [(1,'1'),(4,'4'),('2‑3','2‑3')]:
+    if k=='2‑3':
+        m = ((data>0).sum(axis=1).between(2,3))
+    else:
+        m = ((data>0).sum(axis=1)==k)
+    print(f'Fraction with {label} positive VAFs: {m.mean():.2%}')
 
-fraction = len(data[mask2]) / original_len
-print(f"Fraction of rows with at least 2 and max 3 positive VAFs: {fraction:.2%}")
-
-# calculate fraction of rows with 4 positive VAFs
-mask1 = (data > 0).sum(axis=1) == 4
-fraction = len(data[mask1]) / original_len
-print(f"Fraction of rows with 4 positive VAFs: {fraction:.2%}")
-
-# calculate fraction of rows with 1 positive VAF
-mask1 = (data > 0).sum(axis=1) == 1
-fraction = len(data[mask1]) / original_len
-print(f"Fraction of rows with 1 positive VAF: {fraction:.2%}")
-
-
-# Define a threshold to consider a VAF "positive"
+# binary pattern
 vaf_threshold = 0
-
-# Generate an ordered pattern list, from 1-positive-bit to 6-positive-bits
-pattern_order = []
-for r in range(1, 5):
-    for combo in itertools.combinations(range(4), r):
-        pattern = ['0'] * 4
-        for bit_index in combo:
-            pattern[bit_index] = '1'
-        pattern_order.append("".join(pattern))
-
 def assign_pattern(row):
-    return "".join('1' if row[c] > vaf_threshold else '0' for c in vaf_columns)
+    return ''.join('1' if v>vaf_threshold else '0' for v in row)
 
-df_clean['Pattern'] = data.apply(assign_pattern, axis=1)
+df['Pattern'] = data.apply(assign_pattern, axis=1)
 
-# Assign clusters based on pattern
-pattern_to_cluster = {p: i for i, p in enumerate(pattern_order)}
-df_clean['Cluster'] = df_clean['Pattern'].apply(lambda x: pattern_to_cluster.get(x, -1))
+# remove duplicates
+pattern_order = [''.join('1' if i in c else '0' for i in range(4))
+                 for r in range(1,5)
+                 for c in itertools.combinations(range(4), r)]
+excluded = {'0111'}            # keep your previous exclusions
+sel = df['Pattern'].str.count('1').between(2,3) & ~df['Pattern'].isin(excluded)
+print(f'Fraction of barcodes with >1&<4 positives (excl. {excluded}): {sel.mean():.2%}')
 
-# calculate average VAF and add to df_clean
-df_clean['Average_VAF'] = data[data > 0].mean(axis=1)
-df_clean = df_clean.sort_values('Average_VAF')
+pattern_to_cluster = {p:i for i,p in enumerate(pattern_order)}
+df['Cluster'] = df['Pattern'].map(pattern_to_cluster).fillna(-1).astype(int)
 
-# plot a histogram of average VAF of only the fully positive rows
-plt.figure(figsize=(8, 5))
-plt.hist(avg_vaf, bins=15, range=(0, 1))
-plt.xlabel('Average VAF')
-plt.ylabel('Frequency')
-plt.title('Average VAFs for fully positive mutations')
+df['Average_VAF'] = data.where(data>0).mean(axis=1)
+df = df.sort_values(['Cluster','Average_VAF'])
 
-# Sort by cluster while keeping the order by intensity
-df_clean = df_clean.sort_values('Cluster', kind="stable")
-rename_dict = {
-    'wgs_S11340Nr4_VAF': 'HM6',
-    'wgs_S11340Nr5_VAF': 'HM8',
-    'wgs_S11340Nr6_VAF': 'HM11',
-    'wgs_S11340Nr7_VAF': 'HM15'
+plt.figure(figsize=(15,3))
+sns.heatmap(df[sample_columns].T, cbar_kws=dict(label='VAF'))
+plt.xlabel('Mutations')
+plt.xticks([])
+out_png = file_path.with_name('heatmap_vaf_batch2_4_samples.png')
+plt.savefig(out_png, dpi=300, bbox_inches='tight')
+
+
+# === Annotate with barcode & biological type ===============================
+df['Barcode'] = df['Pattern']
+
+pattern_to_type = {
+    # striping type 1
+    '1011': 'striping type 1', '1010': 'striping type 1', '1001': 'striping type 1',
+    # striping type 2
+    '1100': 'striping type 2', '1101': 'striping type 2', '1110': 'striping type 2',
+    '0110': 'striping type 2', '0101': 'striping type 2', '0011': 'striping type 2',
+    # non-striping
+    '0111': 'nonstriping',
+    # adult
+    '1000': 'adult', '0100': 'adult', '0010': 'adult', '0001': 'adult',
+    # embryonic
+    '1111': 'embryonic'
 }
-df_clean = df_clean.rename(columns=rename_dict)
-vaf_columns = list(rename_dict.values())
-data = df_clean[vaf_columns]
+df['Type'] = df['Barcode'].map(pattern_to_type).fillna('other')
 
-plt.figure(figsize=(8, 6))
-sns.heatmap(data)
-plt.ylabel('Mutations')
-plt.yticks([])
+# === Save annotated mutation matrix ========================================
+cols_out = ['Mutation', *sample_columns, 'Barcode', 'Type', 'Average_VAF']
+out_txt = file_path.with_name('mutation_matrix_annotated.txt')
+df[cols_out].to_csv(out_txt, sep='\t', index=False, quoting=3)
+print(f'Annotated matrix saved to: {out_txt}')
+
 plt.show()
+
+print(f'Heat‑map saved to: {out_png}')

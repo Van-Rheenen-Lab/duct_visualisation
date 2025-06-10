@@ -2,17 +2,13 @@ import os
 import random
 import json
 import itertools
-import copy
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import seaborn as sns
-import colorcet as cc  # for Glasbey palette
-
-# --- Import simulation and analysis modules ---
-from puberty import simulate_ductal_tree
-from adulthood import simulate_adulthood
-from duct_excision_simulations import gather_clone_fractions_for_selected_ducts
+from simulation.puberty import simulate_ductal_tree
+from simulation.adulthood import simulate_adulthood
+from simulation.utils.duct_excision_simulations import gather_clone_fractions_for_selected_ducts
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, \
     select_biggest_duct_system
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
@@ -21,8 +17,8 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 from rasterio.features import rasterize
 from skimage import io
-from plotting_simulated_ducts_striped import plot_hierarchical_graph_subsegments_simulated
-from plotting_simulated_ducts import plot_selected_ducts
+from simulation.utils.plotting_simulated_ducts_striped import plot_hierarchical_graph_subsegments_simulated
+from simulation.utils.plotting_simulated_ducts import plot_selected_ducts
 
 
 # --- Utility plotting functions from the first script ---
@@ -159,7 +155,6 @@ def main():
     do_simulated_visualization = True
     do_heatmaps = True
     do_single_duct_plot = True
-    do_zoom_plots = True      # NEW: Toggle for plotting/saving zooms (subgraph views)
     do_save_figures = True
 
     random.seed(42)
@@ -396,92 +391,6 @@ def main():
     # --------------------------
 
     # --------------------------
-    # Zoom Plots (Subgraph views)
-    # --------------------------
-    # NEW: If enabled, extract the subgraph downstream of a specific duct (here duct 183)
-    # and use your existing plotting function to create “zoomed” dendrograms.
-    if do_simulated_visualization and do_zoom_plots:
-        zoom_duct_id = 183
-
-        # Zoom for Puberty (using pubertal clones)
-        if zoom_duct_id in G_puberty.nodes():
-            zoom_nodes = nx.descendants(G_puberty, zoom_duct_id)
-            zoom_nodes.add(zoom_duct_id)
-            subG_puberty_zoom = G_puberty.subgraph(zoom_nodes).copy()
-            fig_zoom_puberty, ax_zoom_puberty = plot_hierarchical_graph_subsegments_simulated(
-                subG_puberty_zoom,
-                root_node=zoom_duct_id,
-                clone_attr="duct_clones",
-                annotation_to_color=clone_color_map,
-                subsegments=subsegments,
-                use_hierarchy_pos=True,
-                vert_gap=2,
-                orthogonal_edges=True,
-                linewidth=18,
-                draw_nodes=False
-            )
-            plt.title(f"Zoomed Simulated Ductal Tree after Puberty (Zoom: Duct {zoom_duct_id})")
-            fig_zoom_puberty.set_size_inches(35, 12)
-            if do_save_figures:
-                save_figure_with_separated_legend(fig_zoom_puberty, f"puberty_duct_tree_zoom_{zoom_duct_id}", dpi=600,
-                                                  output_folder=output_folder)
-                plt.close(fig_zoom_puberty)
-            else:
-                plt.show()
-        else:
-            print(f"Duct {zoom_duct_id} not found in G_puberty.")
-
-        # Zoom for Adulthood (using pubertal clones)
-        if zoom_duct_id in G_adulthood.nodes():
-            zoom_nodes_adult = nx.descendants(G_adulthood, zoom_duct_id)
-            zoom_nodes_adult.add(zoom_duct_id)
-            subG_adulthood_zoom = G_adulthood.subgraph(zoom_nodes_adult).copy()
-            fig_zoom_adult, ax_zoom_adult = plot_hierarchical_graph_subsegments_simulated(
-                subG_adulthood_zoom,
-                root_node=zoom_duct_id,
-                clone_attr="duct_clones",
-                annotation_to_color=clone_color_map,
-                subsegments=subsegments,
-                use_hierarchy_pos=True,
-                vert_gap=2,
-                orthogonal_edges=True,
-                linewidth=18,
-                draw_nodes=False
-            )
-            plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Pubertal Clones) (Zoom: Duct {zoom_duct_id})")
-            fig_zoom_adult.set_size_inches(35, 12)
-            if do_save_figures:
-                save_figure_with_separated_legend(fig_zoom_adult, f"adulthood_duct_tree_pubertal_zoom_{zoom_duct_id}", dpi=900,
-                                                  output_folder=output_folder)
-                plt.close(fig_zoom_adult)
-            else:
-                plt.show()
-
-            # Zoom for Adulthood (using adult clones)
-            fig_zoom_adult2, ax_zoom_adult2 = plot_hierarchical_graph_subsegments_simulated(
-                subG_adulthood_zoom,
-                root_node=zoom_duct_id,
-                clone_attr="adult_clones",
-                annotation_to_color=clone_color_map_adult,
-                subsegments=subsegments,
-                use_hierarchy_pos=True,
-                vert_gap=2,
-                orthogonal_edges=True,
-                linewidth=18,
-                draw_nodes=False
-            )
-            plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Adult Clones) (Zoom: Duct {zoom_duct_id})")
-            fig_zoom_adult2.set_size_inches(35, 12)
-            if do_save_figures:
-                save_figure_with_separated_legend(fig_zoom_adult2, f"adulthood_duct_tree_adult_zoom_{zoom_duct_id}", dpi=900,
-                                                  output_folder=output_folder)
-                plt.close(fig_zoom_adult2)
-            else:
-                plt.show()
-        else:
-            print(f"Duct {zoom_duct_id} not found in G_adulthood.")
-
-    # --------------------------
     # Heatmaps
     # --------------------------
     if do_heatmaps:
@@ -570,7 +479,7 @@ def main():
     # Single Duct Plot (Adapted Coloring and Orientation)
     # --------------------------
     if do_single_duct_plot:
-        duct_id = 3836  # duct to visualize
+        duct_id = 233  # duct to visualize
         n_iterations = 33  # number of adulthood iterations
 
         # --- For the Pubertal Clones Plot ---
@@ -644,6 +553,7 @@ def main():
             fig_single_adult.savefig(os.path.join(output_folder, "single_duct_adult.png"), dpi=300,
                                      bbox_inches="tight")
             plt.close(fig_single_adult)
+
 
     # Finally, if saving images is on, close all figures; otherwise, display them.
     if do_save_figures:

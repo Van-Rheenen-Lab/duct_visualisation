@@ -2,17 +2,13 @@ import os
 import random
 import json
 import itertools
-import copy
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import seaborn as sns
-import colorcet as cc  # for Glasbey palette
-
-# --- Import simulation and analysis modules ---
-from puberty import simulate_ductal_tree
-from adulthood import simulate_adulthood
-from duct_excision_simulations import gather_clone_fractions_for_selected_ducts
+from simulation.puberty import simulate_ductal_tree
+from simulation.adulthood import simulate_adulthood
+from simulation.utils.duct_excision_simulations import gather_clone_fractions_for_selected_ducts
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, \
     select_biggest_duct_system
 from analysis.utils.plotting_striped_trees import plot_hierarchical_graph_subsegments
@@ -21,11 +17,10 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 from rasterio.features import rasterize
 from skimage import io
-from plotting_simulated_ducts_striped import plot_hierarchical_graph_subsegments_simulated
-from plotting_simulated_ducts import plot_selected_ducts
+from simulation.utils.plotting_simulated_ducts_striped import plot_hierarchical_graph_subsegments_simulated
+from simulation.utils.plotting_simulated_ducts import plot_selected_ducts
 
 
-# --- Utility plotting functions from the first script ---
 def plot_branch_level_distribution(G, title="Branch Level Distribution", save_path=None):
     """
     Computes the shortest-path levels from a root (a node with in-degree 0)
@@ -95,7 +90,6 @@ def save_figure_with_separated_legend(fig, base_filename, dpi=900, output_folder
         fig.savefig(main_path, dpi=dpi, bbox_inches='tight')
 
 
-# --- Functions for the single duct plot ---
 def gather_clones_for_duct(G, duct, puberty_clones=True):
     """
     Given a graph G and a duct node ID, returns the list of clone IDs
@@ -152,14 +146,23 @@ def plot_ductal_clone_line_at_x(clone_ids, ax, highlight_map, x=0, line_width=6,
                   colors=color, linewidth=line_width)
 
 
-# --- Main script combining both parts ---
 def main():
-    # ----- Toggle Flags -----
     do_real_visualization = False
     do_simulated_visualization = True
     do_heatmaps = True
     do_single_duct_plot = True
+    do_zoom_plots = True
     do_save_figures = True
+
+    plt.rcParams.update({
+        'font.size': 12,
+        'font.weight': 'bold',
+        'axes.titlesize': 14,
+        'axes.labelsize': 9,
+        'axes.labelweight': 'bold',
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+    })
 
     random.seed(42)
     output_folder = "output_images_fig_3"
@@ -167,7 +170,7 @@ def main():
 
     # Define common parameters for simulation and visualization.
     # For the pubertal clones, we highlight a few selected ones.
-    clone_color_map = {"84": "#ff350e", "58": "#45d555", "21": "#40aef1"}
+    clone_color_map = {"99": "#ff350e", "40": "#45d555", "26": "#40aef1"}
     subsegments = 100
     vert_gap = 3.5
 
@@ -251,20 +254,13 @@ def main():
             save_path=branch_level_path
         )
 
-    # --------------------------
-    # End of Real Data Visualisation
-    # --------------------------
-
-    # --------------------------
-    # Simulation Data Generation (for simulation visualization and/or heatmaps)
-    # --------------------------
     if do_simulated_visualization or do_heatmaps:
         n_clones = 170
         bifurcation_prob = 0.01
         initial_termination_prob = 0.25
         max_cells = 6_000_000
 
-        # -- Simulate Puberty --
+        # Simulate Puberty
         G_puberty, progress_data_puberty = simulate_ductal_tree(
             max_cells=max_cells,
             bifurcation_prob=bifurcation_prob,
@@ -287,6 +283,9 @@ def main():
             selected_ducts = selected_ducts[::2]    # every other duct
         else:
             selected_ducts = []
+
+
+
 
         # If simulation visualization is enabled, generate the simulation plots.
         if do_simulated_visualization:
@@ -314,16 +313,34 @@ def main():
                 title="Simulation (Puberty): Ducts per Branch Level",
                 save_path=os.path.join(output_folder, "puberty_branch_level_distribution.png") if do_save_figures else None
             )
+            # ------------------------------------------------------------------
+            #  Selected ducts – zoom-style truncation, using the same root as zoom
+            # ------------------------------------------------------------------
+            root_trunc = selected_ducts[0]  # the proximal duct
+            trunc_nodes = nx.descendants(G_puberty, root_trunc) | {root_trunc}
+            G_puberty_trunc = G_puberty.subgraph(trunc_nodes).copy()
 
-            plot_selected_ducts(G_puberty, selected_ducts, vert_gap=vert_gap)
-            plt.title("Simulated Puberty: Selected Ducts for Heatmap Analysis")
+            plot_selected_ducts(
+                G_puberty_trunc,
+                selected_ducts,
+                vert_gap=2,
+                root_node=root_trunc,
+                linewidth = 15
+            )
+            plt.title("Simulated Puberty: Selected Ducts (truncated branch)")
+
             fig_selected = plt.gcf()
             fig_selected.set_size_inches(35, 12)
+
             if fig_selected.legend():
                 fig_selected.legend().remove()
             if do_save_figures:
-                save_figure_with_separated_legend(fig_selected, "puberty_selected_ducts", dpi=600,
-                                                  output_folder=output_folder)
+                save_figure_with_separated_legend(
+                    fig_selected,
+                    "puberty_selected_ducts_truncated",
+                    dpi=600,
+                    output_folder=output_folder
+                )
                 plt.close(fig_selected)
 
             # -- Simulate Adulthood --
@@ -359,7 +376,7 @@ def main():
             for u, v in G_adulthood.edges():
                 adult_clones.extend(G_adulthood[u][v].get("adult_clones", []))
             adult_clones = list(set(adult_clones))
-            random_adult_clones = random.sample(adult_clones, min(1000, len(adult_clones)))
+            random_adult_clones = random.sample(adult_clones, min(10000, len(adult_clones)))
             clone_color_map_adult = {str(c): sns.color_palette("tab20", n_colors=len(random_adult_clones))[i]
                                      for i, c in enumerate(random_adult_clones)}
 
@@ -390,14 +407,90 @@ def main():
                     seed=42
                 )
 
-    # --------------------------
-    # End of Simulation Data Generation
-    # --------------------------
+    if do_simulated_visualization and do_zoom_plots:
+        zoom_duct_id = 183
 
-    # --------------------------
-    # Heatmaps
-    # --------------------------
+        # Zoom for Puberty (using pubertal clones)
+        if zoom_duct_id in G_puberty.nodes():
+            zoom_nodes = nx.descendants(G_puberty, zoom_duct_id)
+            zoom_nodes.add(zoom_duct_id)
+            subG_puberty_zoom = G_puberty.subgraph(zoom_nodes).copy()
+            fig_zoom_puberty, ax_zoom_puberty = plot_hierarchical_graph_subsegments_simulated(
+                subG_puberty_zoom,
+                root_node=zoom_duct_id,
+                clone_attr="duct_clones",
+                annotation_to_color=clone_color_map,
+                subsegments=subsegments,
+                use_hierarchy_pos=True,
+                vert_gap=2,
+                orthogonal_edges=True,
+                linewidth=18,
+                draw_nodes=False
+            )
+            plt.title(f"Zoomed Simulated Ductal Tree after Puberty (Zoom: Duct {zoom_duct_id})")
+            fig_zoom_puberty.set_size_inches(35, 12)
+            if do_save_figures:
+                save_figure_with_separated_legend(fig_zoom_puberty, f"puberty_duct_tree_zoom_{zoom_duct_id}", dpi=600,
+                                                  output_folder=output_folder)
+                plt.close(fig_zoom_puberty)
+            else:
+                plt.show()
+        else:
+            print(f"Duct {zoom_duct_id} not found in G_puberty.")
+
+        # Zoom for Adulthood (using pubertal clones)
+        if zoom_duct_id in G_adulthood.nodes():
+            zoom_nodes_adult = nx.descendants(G_adulthood, zoom_duct_id)
+            zoom_nodes_adult.add(zoom_duct_id)
+            subG_adulthood_zoom = G_adulthood.subgraph(zoom_nodes_adult).copy()
+            fig_zoom_adult, ax_zoom_adult = plot_hierarchical_graph_subsegments_simulated(
+                subG_adulthood_zoom,
+                root_node=zoom_duct_id,
+                clone_attr="duct_clones",
+                annotation_to_color=clone_color_map,
+                subsegments=subsegments,
+                use_hierarchy_pos=True,
+                vert_gap=2,
+                orthogonal_edges=True,
+                linewidth=18,
+                draw_nodes=False
+            )
+            plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Pubertal Clones) (Zoom: Duct {zoom_duct_id})")
+            fig_zoom_adult.set_size_inches(35, 12)
+            if do_save_figures:
+                save_figure_with_separated_legend(fig_zoom_adult, f"adulthood_duct_tree_pubertal_zoom_{zoom_duct_id}", dpi=900,
+                                                  output_folder=output_folder)
+                plt.close(fig_zoom_adult)
+            else:
+                plt.show()
+
+            # Zoom for Adulthood (using adult clones)
+            fig_zoom_adult2, ax_zoom_adult2 = plot_hierarchical_graph_subsegments_simulated(
+                subG_adulthood_zoom,
+                root_node=zoom_duct_id,
+                clone_attr="adult_clones",
+                annotation_to_color=clone_color_map_adult,
+                subsegments=subsegments,
+                use_hierarchy_pos=True,
+                vert_gap=2,
+                orthogonal_edges=True,
+                linewidth=18,
+                draw_nodes=False
+            )
+            plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Adult Clones) (Zoom: Duct {zoom_duct_id})")
+            fig_zoom_adult2.set_size_inches(35, 12)
+            if do_save_figures:
+                save_figure_with_separated_legend(fig_zoom_adult2, f"adulthood_duct_tree_adult_zoom_{zoom_duct_id}", dpi=900,
+                                                  output_folder=output_folder)
+                plt.close(fig_zoom_adult2)
+            else:
+                plt.show()
+        else:
+            print(f"Duct {zoom_duct_id} not found in G_adulthood.")
+
     if do_heatmaps:
+        # pop the first one from selected ducts
+        selected_ducts = selected_ducts[1:]
         df_puberty = gather_clone_fractions_for_selected_ducts(
             G_puberty, selected_ducts, puberty_clones=True
         )
@@ -437,11 +530,11 @@ def main():
         df_adulthood_adult.sort_values('Cluster', inplace=True)
         df_adulthood_adult = df_adulthood_adult[df_adulthood_adult['Pattern'] != nonzero_pattern]
 
-        plt.figure()
-        sns.heatmap(df_puberty[selected_ducts], vmin=0.0, vmax=0.2)
-        plt.xlabel("Duct ID")
-        plt.ylabel("Clone IDs")
-        plt.yticks([])
+        plt.figure(figsize=(18, 5))
+        sns.heatmap(df_puberty[selected_ducts].T, vmin=0.0, vmax=0.2)
+        plt.ylabel("Duct ID")
+        plt.xlabel("Clone IDs")
+        # plt.xticks([])
         plt.title("Simulated Sequencing Post-Puberty (Clone Fractions)")
         if do_save_figures:
             plt.savefig(os.path.join(output_folder, "heatmap_puberty_clone_fractions.png"), dpi=900,
@@ -450,11 +543,11 @@ def main():
         else:
             plt.show()
 
-        plt.figure()
-        sns.heatmap(df_adulthood_pubertal[selected_ducts], vmin=0.0, vmax=0.2)
-        plt.xlabel("Duct ID")
-        plt.ylabel("Clone IDs (Pubertal)")
-        plt.yticks([])
+        plt.figure(figsize=(18, 5))
+        sns.heatmap(df_adulthood_pubertal[selected_ducts].T, vmin=0.0, vmax=0.2)
+        plt.ylabel("Duct ID")
+        plt.xlabel("Clone IDs (Pubertal)")
+        # plt.xticks([])
         plt.title("Simulated Sequencing Post-Adulthood (Pubertal Clones)")
         if do_save_figures:
             plt.savefig(os.path.join(output_folder, "heatmap_adulthood_pubertal_clone_fractions.png"), dpi=900,
@@ -463,11 +556,11 @@ def main():
         else:
             plt.show()
 
-        plt.figure()
-        sns.heatmap(df_adulthood_adult[selected_ducts], vmin=0.0, vmax=0.2)
-        plt.xlabel("Duct ID")
-        plt.ylabel("Clone IDs (Adult)")
-        plt.yticks([])
+        plt.figure(figsize=(18, 5))
+        sns.heatmap(df_adulthood_adult[selected_ducts].T, vmin=0.0, vmax=0.2)
+        plt.ylabel("Duct ID")
+        plt.xlabel("Clone IDs (Adult)")
+        plt.xticks([])
         plt.title("Simulated Sequencing Post-Adulthood (Adult Clones)")
         if do_save_figures:
             plt.savefig(os.path.join(output_folder, "heatmap_adulthood_adult_clone_fractions.png"), dpi=900,
@@ -475,18 +568,11 @@ def main():
             plt.close()
         else:
             plt.show()
-    # --------------------------
-    # End of Heatmaps
-    # --------------------------
 
-    # --------------------------
-    # Single Duct Plot (Adapted Coloring and Orientation)
-    # --------------------------
     if do_single_duct_plot:
-        duct_id = 3836  # duct to visualize
+        duct_id = 233  # duct to visualize
         n_iterations = 33  # number of adulthood iterations
 
-        # --- For the Pubertal Clones Plot ---
         # Add the final state of puberty (pubertal clones are stored as "duct_clones" in G_puberty)
         puberty_clones_final = gather_clones_for_duct(G_puberty, duct_id, puberty_clones=True)
         pubertal_clones_over_iterations = [puberty_clones_final]
@@ -525,7 +611,6 @@ def main():
                                          bbox_inches="tight")
             plt.close(fig_single_pubertal)
 
-        # --- For the Adult Clones Plot ---
         adult_clones_over_iterations = []
         for i in range(n_iterations + 1):
             snapshot = round_graphs[i]
@@ -557,7 +642,6 @@ def main():
             fig_single_adult.savefig(os.path.join(output_folder, "single_duct_adult.png"), dpi=300,
                                      bbox_inches="tight")
             plt.close(fig_single_adult)
-
 
     # Finally, if saving images is on, close all figures; otherwise, display them.
     if do_save_figures:

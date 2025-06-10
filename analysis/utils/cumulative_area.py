@@ -6,7 +6,6 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from rasterio.features import rasterize
 
-
 def compute_branch_levels(G_dir, root_node):
     """
     Returns a dict {node: level} indicating the branch level distance from `root_node`.
@@ -275,3 +274,166 @@ def plot_area_vs_branch_level_multi_stack(
     ax.legend(loc="best")
     plt.tight_layout()
     return fig, ax
+
+def mean_label_fraction_by_level(G_dir, root_node,
+                                      duct_polygon, images,
+                                      buffer_dist, threshold):
+    # 1) assign an integer label to every segment
+    node_levels = compute_branch_levels(G_dir, root_node)
+    seg_to_id = {}
+    id_to_level = []
+    geoms = []                         # [(geom, id), …] for rasterize
+    next_id = 1
+    for u, v, data in G_dir.edges(data=True):
+        seg_name = data.get("segment_name")
+        if seg_name is None:
+            continue
+        line = get_line_for_segment(G_dir, seg_name)
+        geom = line.buffer(buffer_dist).intersection(duct_polygon)
+        if geom.is_empty:
+            continue
+        seg_to_id[seg_name] = next_id
+        id_to_level.append(node_levels[v])   # index = id-1
+        geoms.append((geom, next_id))
+        next_id += 1
+
+    out_shape = next(img.shape for img in images if img is not None)
+
+    # 2) single rasterisation pass
+    segment_label = rasterize(
+        geoms,
+        out_shape=out_shape,
+        fill=0,
+        dtype=np.uint32,
+        all_touched=True
+    )
+
+    # 3) vectorised counts
+    positive_mask = np.zeros(out_shape, bool)
+    for img in images:
+        if img is not None:
+            positive_mask |= img > threshold
+
+    area = np.bincount(segment_label.ravel())[1:]
+    pos = np.bincount(segment_label.ravel(),
+                         weights=positive_mask.ravel())[1:]
+
+    # 4) aggregate per branch level
+    max_lvl = max(id_to_level) if id_to_level else 0
+    sums, counts = np.zeros(max_lvl + 1), np.zeros(max_lvl + 1)
+
+    for seg_id, lvl in enumerate(id_to_level, start=1):
+        if pos[seg_id-1] == 0:
+            continue                        # skip ducts with no clone
+        frac = pos[seg_id-1] / area[seg_id-1]
+        sums[lvl] += frac
+        counts[lvl] += 1
+
+    mean_frac = np.where(counts > 0, sums / counts, np.nan)
+    return mean_frac
+
+from tqdm import tqdm
+
+def sliding_window_label_fraction(
+    G_dir,
+    root_node,
+    duct_polygon,
+    images,
+    threshold,
+    buffer_dist,
+    window_size
+):
+    """
+    For each segment whose branch‐level >= window_size-1,
+    compute the fraction of “positive” pixels over the sliding
+    window of recent `window_size` ancestors (including itself),
+    separately for each channel.
+
+    Returns:
+      fractions_by_channel: dict
+        channel_idx -> list of (segment_level, fraction)
+      segment_label: 2D ndarray of per-pixel segment IDs
+      positive_masks: list of 2D bool arrays per channel
+    """
+    # 1) node‐level distances
+    levels = compute_branch_levels(G_dir, root_node)
+
+    # 2) assign an integer ID to each segment (edge)
+    seg_to_id = {}
+    id_to_level = []
+    id_to_ends = []
+    next_id = 1
+    for u, v, data in G_dir.edges(data=True):
+        name = data.get("segment_name")
+        if name is None:
+            continue
+        seg_to_id[name] = next_id
+        id_to_level.append(levels[v])
+        id_to_ends.append((u, v))
+        next_id += 1
+
+    # 3) build parent‐map: seg_id -> parent_seg_id (or None)
+    node_to_seg = {v: seg_id for seg_id, (_, v) in enumerate(id_to_ends, start=1)}
+    parent = {seg_id: node_to_seg.get(u, None)
+              for seg_id, (u, v) in enumerate(id_to_ends, start=1)}
+
+    # 4) rasterize every segment
+    geoms = []
+    for seg_name, seg_id in seg_to_id.items():
+        line = get_line_for_segment(G_dir, seg_name)
+        poly = line.buffer(buffer_dist).intersection(duct_polygon)
+        if not poly.is_empty:
+            geoms.append((poly, seg_id))
+    out_shape = next(img.shape for img in images if img is not None)
+    segment_label = rasterize(
+        geoms,
+        out_shape=out_shape,
+        fill=0,
+        dtype=np.uint32,
+        all_touched=True
+    )
+
+    # 5) build per‐channel positive masks
+    positive_masks = [(img > threshold) if img is not None else np.zeros(out_shape, bool)
+                      for img in images]
+
+    # 6) slide window over each segment with progress bar
+    fractions_by_channel = {ch: [] for ch in range(len(images))}
+    total_segs = len(id_to_level)
+    for seg_id, lvl in tqdm(
+            enumerate(id_to_level, start=1),
+            total=total_segs,
+            desc="Sliding-window computation"):
+        if lvl < window_size - 1:
+            continue  # not enough ancestors
+
+        # collect exactly `window_size` segment IDs
+        w_ids = [seg_id]
+        cur = seg_id
+        for _ in range(window_size - 1):
+            cur = parent[cur]
+            if cur is None:
+                break
+            w_ids.append(cur)
+        if len(w_ids) < window_size:
+            continue
+
+        # mask of pixels in this window
+        mask = np.isin(segment_label, w_ids)
+        total = mask.sum()
+        if total == 0:
+            for ch in fractions_by_channel:
+                fractions_by_channel[ch].append((lvl, np.nan))
+            continue
+
+        # compute per‐channel fraction
+        for ch, pm in enumerate(positive_masks):
+            pos = np.count_nonzero(pm & mask)
+            fractions_by_channel[ch].append((lvl, pos / total))
+
+    # sort each list by descending level (leaf → root)
+    for ch in fractions_by_channel:
+        fractions_by_channel[ch].sort(key=lambda x: -x[0])
+
+    return fractions_by_channel, segment_label, positive_masks
+

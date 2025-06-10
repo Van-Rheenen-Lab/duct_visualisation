@@ -1,7 +1,7 @@
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-from puberty import simulate_ductal_tree
+from simulation.puberty import simulate_ductal_tree
 from analysis.utils.plotting_trees import plot_hierarchical_graph, create_annotation_color_map
 
 if __name__ == "__main__":

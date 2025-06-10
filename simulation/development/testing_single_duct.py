@@ -200,7 +200,7 @@ def main():
     G_puberty_orig = copy.deepcopy(G_puberty)
 
     # --- Create static dendrogram from the original pubertal graph ---
-    subtree_orig = extract_subtree(G_puberty_orig, duct_id, max_depth=2)
+    subtree_orig = extract_subtree(G_puberty_orig, duct_id, max_depth=4)
     # Build a unified color map for pubertal clones from the original subtree.
     union_clones = []
     for u, v, data in subtree_orig.edges(data=True):

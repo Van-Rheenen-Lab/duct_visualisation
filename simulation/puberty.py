@@ -121,85 +121,28 @@ class TEB:
 
         return children_tebs
 
-# import random
-#
-# class TEB:
-#     def __init__(self, side_cells=None, center_cells=None):
-#         self.side_cells = side_cells if side_cells is not None else []
-#         self.center_cells = center_cells if center_cells is not None else []
-#
-#     def pick_side_clone(self):
-#         return random.choice(self.side_cells)
-#
-#     def expand_population(self):
-#         """
-#         Duplicates both side and center populations. Then, from the doubled side
-#         cells, flips exactly ~70% to center (and keeps ~30% as side). Likewise,
-#         from the doubled center cells, flips 70% to side (and 30% remain center).
-#
-#         Returns:
-#             new_side, new_center (lists of clone IDs)
-#         """
-#
-#         # Duplicate
-#         all_side = self.side_cells + self.side_cells
-#         all_center = self.center_cells + self.center_cells
-#
-#         # Shuffle so that the flips are random
-#         random.shuffle(all_side)
-#         random.shuffle(all_center)
-#
-#         new_side, new_center = [], []
-#
-#         # Flip 70% of side -> center
-#         side_flip_count = int(0.7 * len(all_side))
-#         side_to_center = all_side[:side_flip_count]
-#         side_to_remain_side = all_side[side_flip_count:]
-#
-#         # Flip 70% of center -> side
-#         center_flip_count = int(0.7 * len(all_center))
-#         center_to_side = all_center[:center_flip_count]
-#         center_to_remain_center = all_center[center_flip_count:]
-#
-#         # Extend our new lists
-#         new_side.extend(side_to_remain_side)   # the 30% that stay side
-#         new_side.extend(center_to_side)        # the 70% that flip from center -> side
-#         new_center.extend(side_to_center)      # the 70% that flip from side -> center
-#         new_center.extend(center_to_remain_center)  # the 30% that stay center
-#
-#         assert len(new_side) == len(new_center)
-#
-#         return new_side, new_center
-#
-#
-#     def split_population_into_two(self, side_list, center_list):
-#         """
-#         Splits side_list and center_list independently into two equal halves.
-#         Ensures side1 and side2 have the same length (and likewise for center).
-#         """
-#
-#         # Shuffle side_list and split in half
-#         random.shuffle(side_list)
-#         half_side = len(side_list) // 2
-#         side1 = side_list[:half_side]
-#         side2 = side_list[half_side:]
-#
-#         # Shuffle center_list and split in half
-#         random.shuffle(center_list)
-#         half_center = len(center_list) // 2
-#         center1 = center_list[:half_center]
-#         center2 = center_list[half_center:]
-#
-#         # assert that the lengths are equal
-#         assert len(side1) == len(side2) == len(center1) == len(center2)
-#
-#         # Create two new TEB objects
-#         return TEB(side1, center1), TEB(side2, center2)
+    def stochastic_side_replacement(self, rep_prob: float = 0.10, rng=random):
+        """
+        With probability `rep_prob` pick a random side cell, delete it,
+        and replace it by a clone chosen uniformly from *all* current cells
+        (side + center).  Side-pool size is preserved.
+        """
+        if rng.random() >= rep_prob or not self.side_cells:
+            return                     # no event this elongation
 
+        # victim is an *index* in the side list
+        victim_idx = rng.randrange(len(self.side_cells))
+
+        # donor clone id can come from either compartment
+        donor_id = rng.choice(self.side_cells + self.center_cells)
+
+        # execute replacement
+        self.side_cells[victim_idx] = donor_id
 
 def simulate_ductal_tree(
     max_cells=10000,
     bifurcation_prob=0.01,
+    replacement_prob=0.10,
     initial_side_count=50,
     initial_center_count=50,
     initial_termination_prob=0.05
@@ -430,13 +373,12 @@ def simulate_ductal_tree(
 
             else:
                 # ELONGATE
-                side_clone_id = teb.pick_side_clone()  # choose a side clone
+                side_clone_id = teb.pick_side_clone()
                 num_daughters = random.randint(4, 8)
-                new_clones = [side_clone_id] * num_daughters
-                # Place these new clones into buffer_clones
-                buffer_clones.extend(new_clones)
+                buffer_clones.extend([side_clone_id] * num_daughters)
 
-                # Remain an active end
+                teb.stochastic_side_replacement(rep_prob=replacement_prob)
+
                 next_active_ends.append((start_node, teb, buffer_clones))
 
         # Update active ends
@@ -456,6 +398,7 @@ def simulate_ductal_tree_on_existing_graph(
     existing_graph: nx.DiGraph,
     root_node,
     bifurcation_prob=0.01,
+    replacement_prob=0.10,
     initial_side_count=50,
     initial_center_count=50
 ):
@@ -618,10 +561,10 @@ def simulate_ductal_tree_on_existing_graph(
                 # Elongate: pick a side clone and replicate it
                 side_clone_id = teb.pick_side_clone()
                 num_daughters = random.randint(4, 8)
-                new_clones = [side_clone_id] * num_daughters
-                buffer_clones.extend(new_clones)
+                buffer_clones.extend([side_clone_id] * num_daughters)
 
-                # Stay active for next iteration
+                teb.stochastic_side_replacement(rep_prob=replacement_prob)
+
                 next_active_ends.append((node_id, teb, buffer_clones))
 
         # Update active_ends

@@ -79,7 +79,7 @@ def main():
     # Save the pubertal state for adulthood simulation.
     G_puberty_orig = copy.deepcopy(G_puberty)
 
-    duct_id = 183  # duct to visualize
+    duct_id = 601  # duct to visualize
     n_iterations = 33  # number of adulthood iterations
 
     # --- Run the Adulthood Simulation Once ---
@@ -129,7 +129,7 @@ def main():
     for clones in adult_clones_over_iterations:
         union_adult.extend(clones)
     unique_adult = extract_unique_clone_order(union_adult)
-    adult_color_map = {str(cid): cc.glasbey[i] for i, cid in enumerate(unique_adult)}
+    adult_color_map = {str(cid): cc.glasbey[i%255] for i, cid in enumerate(unique_adult)}
 
     # --- Create Vertical (Single Duct) Plot for Pubertal Clones ---
     fig1, ax1 = plt.subplots(figsize=(10, 8))

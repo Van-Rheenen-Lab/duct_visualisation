@@ -1,23 +1,26 @@
-# analysis_script.py
 import matplotlib.pyplot as plt
 import numpy as np
-from puberty import simulate_ductal_tree
-from plotting_simulated_ducts import plotting_ducts
+from simulation.puberty import simulate_ductal_tree
+from simulation.utils.plotting_simulated_ducts import plotting_ducts
 import random
 
 def run_sim_and_plot():
     random.seed(42)
 
-    # 1) Run simulation
+    n_clones = 170
+    bifurcation_prob = 0.01
+    initial_termination_prob = 0.25
+    max_cells = 6_000_000
+
+    # -- Simulate Puberty --
     G, progress_data = simulate_ductal_tree(
-        max_cells=5_000_000,
-        bifurcation_prob=0.01,
-        initial_side_count=50,
-        initial_center_count=50,
-        initial_termination_prob=0.2
+        max_cells=max_cells,
+        bifurcation_prob=bifurcation_prob,
+        replacement_prob=1,
+        initial_side_count=n_clones / 2,
+        initial_center_count=n_clones / 2,
+        initial_termination_prob=initial_termination_prob
     )
-
-
 
     # Basic times
     iterations = progress_data["iteration"]
