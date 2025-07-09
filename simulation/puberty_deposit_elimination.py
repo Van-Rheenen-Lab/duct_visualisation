@@ -121,31 +121,27 @@ class TEB:
 
         return children_tebs
 
-    def stochastic_side_replacement(self, rep_prob: float = 0.10, rng=random):
+    def forced_side_replacement(self, rng=random):
         """
-        With probability `rep_prob` pick a random side cell, delete it,
-        and replace it by a clone chosen uniformly from *all* current cells
-        (side + center).  Side-pool size is preserved.
+        Always replace one random side cell.
+        Returns the victim clone id (needed for duct deposition).
         """
-        if rng.random() >= rep_prob or not self.side_cells:
-            return                     # no event this elongation
+        if not self.side_cells:
+            raise ValueError("No side cells left to replace.")
 
-        # victim is an *index* in the side list
-        victim_idx = rng.randrange(len(self.side_cells))
-
-        # donor clone id can come from either compartment
-        donor_id = rng.choice(self.side_cells + self.center_cells)
-
-        # execute replacement
-        self.side_cells[victim_idx] = donor_id
+        v_idx = rng.randrange(len(self.side_cells))
+        victim_id = self.side_cells[v_idx]
+        donor_id  = rng.choice(self.side_cells + self.center_cells)
+        self.side_cells[v_idx] = donor_id          # execute replacement
+        return victim_id
 
 def simulate_ductal_tree(
     max_cells=10000,
     bifurcation_prob=0.01,
-    replacement_prob=0,
     initial_side_count=50,
     initial_center_count=50,
-    initial_termination_prob=0.05
+    initial_termination_prob=0.05,
+    final_termination_prob=0.60
 ):
     """
     Returns (G, progress_data).
@@ -188,6 +184,10 @@ def simulate_ductal_tree(
 
     iteration_count = 0
 
+    # This line ensures the termination and bifurcation probabilities are equal at max cells.
+    k = ((final_termination_prob - initial_termination_prob) ** 2) / (
+            2 * max_cells * (final_termination_prob - 0.5)
+    )
     # Helper: deposit the buffer clones into the duct from the "parent" to start_node.
     # If no parent edge (i.e. root?), do nothing or store them in the node's attribute if you prefer.
     def deposit_buffer_in_duct(G, start_node, buffer_clones):
@@ -316,9 +316,7 @@ def simulate_ductal_tree(
             deposit_buffer_in_duct(G, start_node, buffer_clones)  # clears buffer_clones
 
             # 2) Decide whether to branch or elongate
-            p_terminate = initial_termination_prob + (
-                total_cells / max_cells
-            )
+            p_terminate = min(initial_termination_prob + k * total_cells, final_termination_prob)
 
 
             if random.random() < bifurcation_prob:
@@ -378,12 +376,13 @@ def simulate_ductal_tree(
 
             else:
                 # ELONGATE
-                side_clone_id = teb.pick_side_clone()
+                victim_id = teb.forced_side_replacement()
+
+                # 2. create daughters of that victim
                 num_daughters = random.randint(4, 8)
-                buffer_clones.extend([side_clone_id] * num_daughters)
+                buffer_clones.extend([victim_id] * num_daughters)
 
-                teb.stochastic_side_replacement(rep_prob=replacement_prob)
-
+                # 3. keep going
                 next_active_ends.append((start_node, teb, buffer_clones))
 
         # Update active ends
@@ -403,7 +402,7 @@ def simulate_ductal_tree_on_existing_graph(
     existing_graph: nx.DiGraph,
     root_node,
     bifurcation_prob=0.01,
-    replacement_prob=0.0,
+    replacement_prob=0.10,
     initial_side_count=50,
     initial_center_count=50
 ):
@@ -524,6 +523,13 @@ def simulate_ductal_tree_on_existing_graph(
             for cid, count in local_map.items():
                 active_clone_map[cid] = active_clone_map.get(cid, 0) + count
 
+        # Unique stem-clone count across all active TEBs
+        stem_union = set()
+        for (_, teb, _) in active_ends:
+            stem_union.update(teb.side_cells)
+            stem_union.update(teb.center_cells)
+        unique_stem_count = len(stem_union)
+
         num_tebs = len(active_ends)
         avg_dom_fraction = dom_fraction_sum / num_tebs if num_tebs else 0.0
         avg_dom_stem_fraction = dom_stem_fraction_sum / num_tebs if num_tebs else 0.0
@@ -534,19 +540,14 @@ def simulate_ductal_tree_on_existing_graph(
             combined_map[cid] = combined_map.get(cid, 0) + count
         total_cells = sum(combined_map.values())
 
-        stem_union = set()
-        for (_, teb, _) in active_ends:
-            stem_union.update(teb.side_cells)
-            stem_union.update(teb.center_cells)
-
         # Save iteration data
+        progress_data["unique_stem_counts"].append(unique_stem_count)
         progress_data["iteration"].append(iteration_count)
         progress_data["total_cells"].append(total_cells)
         progress_data["clone_counts_over_time"].append(dict(combined_map))
         progress_data["num_active_tebs"].append(num_tebs)
         progress_data["avg_dom_fraction"].append(avg_dom_fraction)
         progress_data["avg_dom_stem_fraction"].append(avg_dom_stem_fraction)
-        progress_data["unique_stem_counts"].append(len(stem_union))
 
         # --- Process the next step for each TEB ---
         next_active_ends = []
@@ -571,11 +572,11 @@ def simulate_ductal_tree_on_existing_graph(
                         next_active_ends.append((child_node, child_teb, []))
             else:
                 # Elongate: pick a side clone and replicate it
-                side_clone_id = teb.pick_side_clone()
-                num_daughters = random.randint(4, 8)
-                buffer_clones.extend([side_clone_id] * num_daughters)
+                victim_id = teb.forced_side_replacement()
 
-                teb.stochastic_side_replacement(rep_prob=replacement_prob)
+                # 2. create daughters of that victim
+                num_daughters = random.randint(4, 8)
+                buffer_clones.extend([victim_id] * num_daughters)
 
                 next_active_ends.append((node_id, teb, buffer_clones))
 

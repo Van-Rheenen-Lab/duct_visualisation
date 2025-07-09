@@ -3,30 +3,7 @@ import networkx as nx
 import numpy as np
 import math
 from collections import Counter
-
-
-def hierarchy_pos(G, root=None, vert_gap=0.2):
-    if root is None:
-        root = list(G.nodes)[0]
-    pos = {}
-    next_x = [-1]
-
-    def recurse(node, depth, parent=None):
-        children = list(G.neighbors(node))
-        if parent is not None and parent in children:
-            children.remove(parent)
-        if len(children) == 0:
-            pos[node] = (next_x[0], - depth * vert_gap)
-            next_x[0] += 1
-        else:
-            child_x = []
-            for child in children:
-                recurse(child, depth + 1, node)
-                child_x.append(pos[child][0])
-            pos[node] = ((min(child_x) + max(child_x)) / 2, - depth * vert_gap)
-
-    recurse(root, 0)
-    return pos
+from analysis.utils.plotting_trees import hierarchy_pos
 
 
 def plot_hierarchical_graph_subsegments_simulated(

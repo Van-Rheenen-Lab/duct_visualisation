@@ -1,4 +1,4 @@
-from simulation.puberty import simulate_ductal_tree_on_existing_graph
+from simulation.puberty_deposit_elimination import simulate_ductal_tree_on_existing_graph
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph
 from analysis.utils.fixing_annotations import simplify_graph
 import matplotlib.pyplot as plt
@@ -10,8 +10,18 @@ import random
 The following script was made 
 """
 
+
 if __name__ == "__main__":
-    random.seed(42)
+
+    plt.rcParams.update({
+        'font.size': 12,
+        'font.family': 'Arial',
+        'axes.titlesize': 14,
+        'axes.labelsize': 9,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+    })
+    random.seed(41)
 
     # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
     # json_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\Duct annotations example hris\normalized_annotations.json'
@@ -38,13 +48,15 @@ if __name__ == "__main__":
     G = create_directed_duct_graph(graphs[index])
 
     G = simplify_graph(G)
+    total_initial_cells = 300
+
     G, progress_data = simulate_ductal_tree_on_existing_graph(
         existing_graph=G,
         root_node=root_node,
         bifurcation_prob=0.01,
         replacement_prob=1,
-        initial_side_count=85,
-        initial_center_count=85,
+        initial_side_count=int(total_initial_cells / 2),
+        initial_center_count=int(total_initial_cells / 2),
     )
 
     iterations = progress_data["iteration"]
@@ -147,6 +159,33 @@ if __name__ == "__main__":
     plt.xlabel("Branch level")
     plt.ylabel("Average # progenitor MaSCs per duct segment")
     plt.title("Clonal diversity across branch levels")
+    plt.tight_layout()
+
+    unique_stem_counts = progress_data["unique_stem_counts"]
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(iterations,
+             unique_stem_counts,
+             label="Unique stem cells in active TEBs",
+             color="purple")
+    plt.xlabel("Iteration")
+    plt.ylabel("# Unique stem cells")
+    plt.title("Stem-cell diversity across active TEBs")
+    plt.legend()
+    plt.tight_layout()
+
+    final_clone_counts = clone_counts_series[-1]  # dict {clone_id: count}
+    sizes = np.array([cnt for cnt in final_clone_counts.values() if cnt > 0])
+
+    bins = np.logspace(np.log10(1), np.log10(sizes.max()), num=30)
+
+    plt.figure(figsize=(6, 4))
+    plt.hist(sizes, bins=bins, edgecolor="k", alpha=0.7)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel("Clone size (# cells, log scale)")
+    plt.ylabel("Number of clones (log scale)")
+    plt.title("Final clone-size distribution")
     plt.tight_layout()
 
     plt.show()

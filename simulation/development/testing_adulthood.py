@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 
-from simulation.puberty import simulate_ductal_tree
+from simulation.puberty_deposit_elimination import simulate_ductal_tree
 from simulation.adulthood import simulate_adulthood
 from simulation.utils.plotting_simulated_ducts import plotting_ducts
 from scipy.special import erfc
@@ -48,20 +48,21 @@ def plot_stack_counts_with_fixed_ids(iterations, dist_series, all_ids, title, co
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
 
-random.seed(42)
+random.seed(41)
 n_clones = 170
 
 # 1) Run puberty simulation
 G, progress_data_puberty = simulate_ductal_tree(
-    max_cells=5_000_000,
+    max_cells=3_000_000,
     bifurcation_prob=0.01,
     initial_side_count=n_clones/2,
     initial_center_count=n_clones/2,
-    initial_termination_prob=0.2
+    initial_termination_prob=0.25,
+    final_termination_prob= 0.55,
 )
 
 # make a color hex dict with tab10 colors, but in hex in dict
-color_map = {"42": "#1f77b4", "84": "#ff7f0e", "12": "#2ca02c", "24": "#d62728"}
+color_map = {"135": "#ff350e", "40": "#45d555", "122": "#40aef1"}
 
 
 plotting_ducts(G, vert_gap=5, color_map=color_map)
@@ -237,19 +238,20 @@ theoretical_cum_prob_fit = lognormal_survival(sizes_full, mu_fit, sigma_fit)
 # Plot everything
 plt.figure(figsize=(8, 5))
 # Empirical data (full range)
-plt.loglog(sizes_full, empirical_cum_prob_full, marker='o', ls='None', label="Simulated Data")
+plt.loglog(sizes_full, empirical_cum_prob_full, marker='o', color="red", ls='None', label="Simulated Data")
 # Fitted theoretical curve over the fitting range (1 to 50)
-plt.loglog(sizes_full, theoretical_cum_prob_fit, marker=None, ls='-', linewidth=3.0, label="Lognormal Fit")
+plt.loglog(sizes_full, theoretical_cum_prob_fit, marker=None, ls='-', color="grey", linewidth=3.0, label="Lognormal Fit")
 
 # vline at 100
-plt.axvline(x=remodel_length*10, color='red', linestyle='--', label="Expected departure from lognormal")
+plt.axvline(x=remodel_length*10, color='black', linestyle='--', label="Expected departure from lognormal")
 
 plt.xlabel("Clone Size")
 plt.ylabel("Cumulative Probability")
 plt.title("Log-Log Plot of Cumulative Clone Size Distribution")
-plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+# plt.grid(True, which="both", linestyle="--", linewidth=0.5)
 plt.legend()
 plt.tight_layout()
+plt.savefig("lognormal_clone_size_distribution.svg", dpi=300)
 plt.show()
 
 # Optionally, print the fitted parameters for inspection

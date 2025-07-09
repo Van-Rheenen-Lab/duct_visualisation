@@ -1,25 +1,26 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from simulation.puberty import simulate_ductal_tree
+from simulation.puberty_deposit_elimination import simulate_ductal_tree
 from simulation.utils.plotting_simulated_ducts import plotting_ducts
 import random
 
 def run_sim_and_plot():
-    random.seed(42)
+    random.seed(41)
 
     n_clones = 170
     bifurcation_prob = 0.01
     initial_termination_prob = 0.25
-    max_cells = 6_000_000
+    final_termination_prob = 0.55
+    max_cells = 3_000_000
 
     # -- Simulate Puberty --
     G, progress_data = simulate_ductal_tree(
         max_cells=max_cells,
         bifurcation_prob=bifurcation_prob,
-        replacement_prob=1,
         initial_side_count=n_clones / 2,
         initial_center_count=n_clones / 2,
-        initial_termination_prob=initial_termination_prob
+        initial_termination_prob=initial_termination_prob,
+        final_termination_prob=final_termination_prob
     )
 
     # Basic times
@@ -126,9 +127,34 @@ def run_sim_and_plot():
     plt.tight_layout()
 
     plotting_ducts(G)
+    # turn of legend
+    plt.legend().set_visible(False)
+
+    # 7) Plot the pre-computed unique-stem-cell count
+    unique_stem_counts = progress_data["unique_stem_counts"]
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(iterations,
+             unique_stem_counts,
+             label="Unique stem cells in active TEBs",
+             color="purple")
+    plt.xlabel("Iteration")
+    plt.ylabel("# Unique stem cells")
+    plt.title("Stem-cell diversity across active TEBs")
+    plt.legend()
+    plt.tight_layout()
+
+    peak_iter_idx = int(np.argmax(num_active_tebs))  # index, not the label
+    peak_iter = iterations[peak_iter_idx]  # iteration number
+    peak_avg_dom = avg_stem_dom_fracs[peak_iter_idx]
+
+    print(
+        f"Iteration with the most active TEBs: {peak_iter} "
+        f"(#TEBs = {num_active_tebs[peak_iter_idx]})\n"
+        f"  ↳ Average dominant-clone fraction (stem cells) = {peak_avg_dom:.3f}"
+    )
+
     plt.show()
     pass
-
-    # for
 if __name__ == "__main__":
     run_sim_and_plot()

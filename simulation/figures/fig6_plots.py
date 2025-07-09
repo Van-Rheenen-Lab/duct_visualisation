@@ -4,23 +4,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from simulation.puberty import simulate_ductal_tree
+from simulation.puberty_deposit_elimination import simulate_ductal_tree
 from simulation.adulthood import simulate_adulthood
 
 def main():
     # Set up the plotting style
     plt.rcParams.update({
-        'font.size': 12,
-        'font.weight': 'bold',
-        'axes.titlesize': 14,
-        'axes.labelsize': 9,
-        'axes.labelweight': 'bold',
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
+        'font.size': 16,
+        'font.family': 'Arial',
+        'figure.figsize': (8, 6)
     })
 
     # Set parameters and directories
-    seed = 42
+    seed = 41
     random.seed(seed)
     n_clones = 170
     output_dir = "simulation_outputs"
@@ -29,16 +25,15 @@ def main():
 
     bifurcation_prob = 0.01
     initial_termination_prob = 0.25
-    replacement_prob = 0.1
 
     # --- Run Puberty Simulation ---
     G, progress_data_puberty = simulate_ductal_tree(
-        max_cells=6_000_000,
+        max_cells=3_000_000,
         bifurcation_prob=bifurcation_prob,
-        replacement_prob=replacement_prob,
         initial_side_count=n_clones / 2,
         initial_center_count=n_clones / 2,
-        initial_termination_prob=initial_termination_prob
+        initial_termination_prob=initial_termination_prob,
+        final_termination_prob=0.55
     )
 
     # Scale puberty iterations to a 4-week period (4*7 days = 28 days)
@@ -56,10 +51,10 @@ def main():
             avg_pubertal_cells.append(sum(dist.values()) / len(dist))
 
     # --- Run Adulthood Simulation ---
-    G, progress_data_adult = simulate_adulthood(G, rounds=33)
-    adult_iters = progress_data_adult["iteration"]
+    G, progress_data_adult = simulate_adulthood(G, rounds=33+17)
+    adult_cycles = progress_data_adult["iteration"]
     adult_days = 33 * 4.5  # each round is 4.5 days
-    adult_iters = [i * 4.5 for i in adult_iters]
+    adult_iters = [i * 4.5 for i in adult_cycles]
 
     adult_pub_dists = progress_data_adult["pubertal_id_counts"]
     adult_adult_dists = progress_data_adult["adult_id_counts"]
@@ -118,40 +113,67 @@ def main():
     # Plot the adult clones (using the same offset)
     plt.plot(adult_iters, avg_stem_cells,
              label="Adult", color=adult_color)
+
+    def imaging_point(ax, x, y):
+        """
+        Put a big 'X' at (x, y) and attach a short text label.
+        """
+        ax.scatter(x, y, marker='X', s=80, color='black', zorder=10)
+
+    pub_13 = np.interp(13, puberty_iters, [v / 10 for v in avg_pubertal_cells])
+    pub_167 = np.interp(167, adult_iters_offset, ratio_values)
+
+    adult_63 = np.interp(63, adult_iters, avg_stem_cells)
+    adult_224 = np.interp(224, adult_iters, avg_stem_cells)
+
+    ax = plt.gca()  # current axes
+    imaging_point(ax, 13, pub_13)
+    imaging_point(ax, 167, pub_167)
+
+    imaging_point(ax, 63, adult_63)
+    imaging_point(ax, 224, adult_224)
+
     plt.yscale("log")
     plt.ylim(bottom=1)  # Ensure y-axis starts at 1
     plt.xlabel("Time (days)")
     plt.ylabel("Adult MaSCs per initial clone")
     plt.title("Simulated MaSCs per Surviving Clone")
-    plt.ylim(bottom=0.9, top=2500)
+    plt.ylim(bottom=0.9, top=3500)
+    # # add "imaging point" for the black x in the legend. we've already made them
+    plt.scatter([], [], marker='X', s=80, color='black', label='Imaging')
     plt.legend()
-    plt.grid(True)
     plt.tight_layout()
 
-    plt.savefig(os.path.join(figures_dir, "increased_adult_mascs_over_time.png"), dpi=300)
+    plt.savefig(os.path.join(figures_dir, "increased_adult_mascs_over_time.svg"))
     plt.close()
 
     # --- Plot: Simulated Clone Survival in Adulthood ---
     unique_pub_ids = [len(d) for d in adult_pub_dists]
     unique_adult_ids = [len(d) for d in adult_adult_dists]
     # Normalize by the value at adult timepoint 0 (avoid division by zero)
+    print(unique_pub_ids[0])
     norm_pub = [val / unique_pub_ids[0] if unique_pub_ids[0] else 0 for val in unique_pub_ids]
     norm_adult = [val / unique_adult_ids[0] if unique_adult_ids[0] else 0 for val in unique_adult_ids]
 
+    # only until day 161
+    adult_cycles = [t for t in adult_cycles if t <= 33]
+    norm_pub = norm_pub[:len(adult_cycles)]
+    norm_adult = norm_adult[:len(adult_cycles)]
+
+
     plt.figure(figsize=(5, 5))
-    plt.plot(adult_iters, norm_pub, label="Pubertal", color=pubertal_color)
-    plt.plot(adult_iters, norm_adult, label="Adult", color=adult_color)
-    plt.xlabel("Time (days)")
-    plt.ylim(0, 1.7)  # Set survival y-axis from 0 to 1
+    plt.plot(adult_cycles, norm_pub, label="Pubertal", color=pubertal_color)
+    plt.plot(adult_cycles, norm_adult, label="Adult", color=adult_color)
+    plt.xlabel("Estrous cycles")
+    plt.ylim(0, 1.2)  # Set survival y-axis from 0 to 1
     plt.ylabel("Surviving clones")
     plt.title("Simulated Initial Clone Survival")
     plt.legend()
-    plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(figures_dir, "normalized_ids_over_time.png"), dpi=300)
+    plt.savefig(os.path.join(figures_dir, "normalized_ids_over_time.svg"))
     plt.close()
 
-    # --- Process Experimental Survival Data (from Scheele et al.) ---
+    # Process Experimental Survival Data (from Scheele et al.)
     orig_values = [
         [0.236111111, 0.62037037, 0.416666667, 0.196759259],
         [0.090277778, 0.143518519, 0.085648148, 0.05787037]
@@ -164,7 +186,6 @@ def main():
     norm_orig_sems = orig_sems / orig_means[0]
     norm_orig_days = orig_days - orig_days[0]
 
-    # --- Process Experimental Pubertal Clone Data ---
     new_values = [
         [0, 0, 2, 4, 0],
         [1, 2, 1, 1, 1, 2, 1]

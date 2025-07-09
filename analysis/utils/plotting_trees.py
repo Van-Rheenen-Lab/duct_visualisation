@@ -82,44 +82,45 @@ def get_segment_color(
         return 'black'
 
 
-def hierarchy_pos(G: nx.Graph, root: Optional[str] = None, vert_gap: float = 0.2) -> Dict[Any, Tuple[float, float]]:
-    """
-    Compute a hierarchical layout for a graph.
-    """
+def hierarchy_pos(G, root=None, vert_gap=0.2, short_left=True):
     if root is None:
         root = list(G.nodes)[0]
-    pos = {}
-    next_x = [-1]
+    pos, next_x = {}, [-1]
 
-    def recurse(node, depth, parent=None):
-        children = list(G.neighbors(node))
-        if parent is not None and parent in children:
-            children.remove(parent)
-        if not children:
-            pos[node] = (next_x[0], -depth * vert_gap)
+    def depth(v, p):
+        kids = [w for w in G.neighbors(v) if w != p]
+        return 0 if not kids else 1 + max(depth(w, v) for w in kids)
+
+    def recurse(v, level, p=None):
+        kids = [w for w in G.neighbors(v) if w != p]
+        kids.sort(key=lambda w: depth(w, v), reverse=not short_left)
+        if not kids:
+            pos[v] = (next_x[0], -level * vert_gap)
             next_x[0] += 1
         else:
-            child_x = []
-            for child in children:
-                recurse(child, depth + 1, node)
-                child_x.append(pos[child][0])
-            pos[node] = ((min(child_x) + max(child_x)) / 2, -depth * vert_gap)
+            xs = []
+            for w in kids:
+                recurse(w, level + 1, v)
+                xs.append(pos[w][0])
+            pos[v] = ((min(xs) + max(xs)) / 2, -level * vert_gap)
 
     recurse(root, 0)
     return pos
 
 
+
 def plot_hierarchical_graph(
         G: nx.Graph,
         root_node: Optional[str] = None,
-        use_hierarchy_pos: bool = False,
+        use_hierarchy_pos: bool = True,
         vert_gap: float = 1,
-        orthogonal_edges: bool = False,
+        orthogonal_edges: bool = True,
         vert_length: float = 1,
         annotation_to_color: Optional[Dict[str, str]] = None,
         segment_color_map: Optional[Dict[str, str]] = None,
         linewidth: float = 1.5,
-        legend_offset: float = -0.1
+        legend_offset: float = -0.1,
+        font_size: int = 12
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot a hierarchical graph where segment colors are determined by edge metadata.
@@ -182,7 +183,7 @@ def plot_hierarchical_graph(
             legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
                                              markerfacecolor=color, label=ann))
         ax.legend(handles=legend_handles, title='Annotations',
-                  loc='lower center', bbox_to_anchor=(0.6, legend_offset))
+                  loc='lower center', bbox_to_anchor=(0.5, legend_offset))
 
     # Add a depth-level scale bar on the left.
     lowest_y = min(y for x, y in pos.values())
@@ -193,7 +194,7 @@ def plot_hierarchical_graph(
         y = highest_y - i * vert_gap
         if i % 5 == 0:
             ax.text(-6, y, f" {i}", horizontalalignment='right',
-                    verticalalignment='center', fontsize=12)
+                    verticalalignment='center', fontsize=font_size)
             ax.plot([-5, -4], [y, y], color='black', linewidth=2)
         else:
             ax.plot([-5, -4], [y, y], color='black', linewidth=1)

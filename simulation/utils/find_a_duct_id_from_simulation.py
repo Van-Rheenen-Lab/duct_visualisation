@@ -1,6 +1,6 @@
 import random
 import matplotlib.pyplot as plt
-from simulation.puberty import simulate_ductal_tree
+from simulation.puberty_deposit_elimination import simulate_ductal_tree
 from analysis.utils.plotting_trees import hierarchy_pos, plot_hierarchical_graph
 
 # Global variables for interactive highlighting
@@ -47,13 +47,13 @@ def on_click(event, pos, ax, fig, G):
 
 def main():
     # Set the random seed as requested.
-    random.seed(42)
+    random.seed(41)
 
     # --- Simulation parameters ---
     n_clones = 170
     bifurcation_prob = 0.01
     initial_termination_prob = 0.25
-    max_cells = 6000000
+    max_cells = 3000000
 
     # Simulate the pubertal ductal tree.
     G_puberty, _ = simulate_ductal_tree(
@@ -61,7 +61,8 @@ def main():
         bifurcation_prob=bifurcation_prob,
         initial_side_count=n_clones / 2,
         initial_center_count=n_clones / 2,
-        initial_termination_prob=initial_termination_prob
+        initial_termination_prob=initial_termination_prob,
+        final_termination_prob=0.55
     )
 
     # Choose the root node (here, simply the first node in the graph).
@@ -76,6 +77,7 @@ def main():
         orthogonal_edges=True,
         annotation_to_color=None,  # No annotation mapping.
         segment_color_map=None,
+        vert_gap=3,
         linewidth=1,
         legend_offset=-0.1
     )
@@ -83,7 +85,7 @@ def main():
 
     # Compute the hierarchical positions using your provided function.
     # Ensure that the vert_gap here matches that used in the plotting function.
-    pos = hierarchy_pos(G_puberty, root=root_node, vert_gap=1)
+    pos = hierarchy_pos(G_puberty, root=root_node, vert_gap=3)
 
     # Connect the click event to our on_click handler.
     fig.canvas.mpl_connect('button_press_event', lambda event: on_click(event, pos, ax, fig, G_puberty))

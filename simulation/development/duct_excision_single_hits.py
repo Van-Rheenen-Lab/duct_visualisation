@@ -1,13 +1,17 @@
 import random
 import pandas as pd
 import matplotlib.pyplot as plt
-from puberty import simulate_ductal_tree
+from puberty_population_dynamics import simulate_ductal_tree
 
-import random
-import pandas as pd
+# set plt parameters and set to arial
+plt.rcParams.update({
+    "font.size": 16,
+    "font.family": "Arial"})
 
 
-def compute_single_hit_ratios(G, max_ducts=None, random_seed=42):
+
+
+def compute_single_hit_ratios(G, max_ducts=None, random_seed=41):
     """
     Computes, for an increasing subset of ducts (1..max_ducts):
       ratio = (# clones found in exactly one of those ducts) / (# clones found in at least one duct)
@@ -79,6 +83,7 @@ def main():
     initial_side_count = n_clones / 2
     initial_center_count = n_clones / 2
     initial_termination_prob = 0.25
+    final_termination_prob = 0.55
 
     # Collect the ratio DataFrames for each replicate
     list_of_dfs = []
@@ -93,7 +98,9 @@ def main():
                 bifurcation_prob=bifurcation_prob,
                 initial_side_count=initial_side_count,
                 initial_center_count=initial_center_count,
-                initial_termination_prob=initial_termination_prob
+                initial_termination_prob=initial_termination_prob,
+                final_termination_prob=final_termination_prob,
+
             )
             if len(G_puberty.nodes) > 80:
                 break
@@ -115,11 +122,18 @@ def main():
             df["subset_size"],
             df["ratio"],
             alpha=0.2,
-            label=f"Replicate {idx+1}"
+            c="green"
         )
 
-    # add 1 point how our real data looks like: 67.54% at 4 ducts
-    plt.scatter(4, 0.6754, color='red', label='Data Patient 2')
+    # Load the real data pubertal fraction at 4 ducts from file (written by plotting_random_sequencing_simulation_experimental_combination.py)
+    try:
+        with open('pubertal_fraction_4ducts.txt', 'r') as f:
+            pubertal_fraction_4ducts = float(f.read().strip())
+        plt.scatter(4, pubertal_fraction_4ducts, color='purple', label='Data Patient 2 (real)')
+    except Exception as e:
+        print(f"Could not load real data pubertal fraction at 4 ducts: {e}")
+        # Optionally, plot nothing or a placeholder
+        # plt.scatter(4, 0.0, color='purple', label='Data Patient 2 (missing)')
 
     # Compute the average ratio across replicates
     df_concat = pd.concat(list_of_dfs)

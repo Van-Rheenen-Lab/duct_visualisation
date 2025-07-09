@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import seaborn as sns
-from simulation.puberty import simulate_ductal_tree
+from simulation.puberty_deposit_elimination import simulate_ductal_tree
 from simulation.adulthood import simulate_adulthood
 from simulation.utils.duct_excision_simulations import gather_clone_fractions_for_selected_ducts
 from analysis.utils.loading_saving import load_duct_systems, create_directed_duct_graph, find_root, \
@@ -19,7 +19,7 @@ from rasterio.features import rasterize
 from skimage import io
 from simulation.utils.plotting_simulated_ducts_striped import plot_hierarchical_graph_subsegments_simulated
 from simulation.utils.plotting_simulated_ducts import plot_selected_ducts
-
+from analysis.utils.cumulative_area import compute_branch_levels
 
 def plot_branch_level_distribution(G, title="Branch Level Distribution", save_path=None):
     """
@@ -27,13 +27,11 @@ def plot_branch_level_distribution(G, title="Branch Level Distribution", save_pa
     and plots a bar chart of the number of ducts (nodes) per level.
     """
     root = find_root(G)
-    level_dict = nx.shortest_path_length(G, source=root)
-    counts = {}
-    for node, lvl in level_dict.items():
-        counts[lvl] = counts.get(lvl, 0) + 1
-    levels_sorted = sorted(counts.items())
-    x = [lvl for lvl, cnt in levels_sorted]
-    y = [cnt for lvl, cnt in levels_sorted]
+
+    levels = compute_branch_levels(G, root)
+    counts = np.bincount(list(levels.values()))
+    x = np.arange(counts.size)
+    y = counts
 
     plt.figure()
     plt.bar(x, y)
@@ -43,6 +41,36 @@ def plot_branch_level_distribution(G, title="Branch Level Distribution", save_pa
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=600, bbox_inches='tight')
+
+
+import numpy as np, collections as _c
+
+def puberty_vs_adult0(G_puberty, progress_adult):
+    # adult-0 pubertal counts
+    ad_counts = progress_adult["pubertal_id_counts"][0]          # {pub_id: n_cells}
+    ad_avg    = np.mean(list(ad_counts.values())) if ad_counts else 0.
+    ad_total  = len(ad_counts)
+
+    # puberty counts
+    pub_counts = _c.Counter()                                    # {pub_id: n_cells}
+    for _, _, e in G_puberty.edges(data=True):
+        pub_counts.update(e.get("duct_clones", []))
+    pub_avg   = np.mean(list(pub_counts.values())) if pub_counts else 0.
+    pub_total = len(pub_counts)
+
+    # clones lost after selection
+    lost_ids  = set(pub_counts) - set(ad_counts)
+    lost_avg  = np.mean([pub_counts[i] for i in lost_ids]) if lost_ids else 0.
+
+    return dict(
+        avg_puberty = pub_avg,
+        avg_adult0  = ad_avg,
+        delta_avg   = ad_avg - pub_avg,
+        total_puberty = pub_total,
+        total_adult0  = ad_total,
+        retention   = ad_total / pub_total if pub_total else 0.,
+        avg_cells_lost = lost_avg          # ⟨pubertal cells⟩ of eliminated clones
+    )
 
 
 def save_figure_with_separated_legend(fig, base_filename, dpi=900, output_folder="output_images"):
@@ -155,34 +183,40 @@ def main():
     do_save_figures = True
 
     plt.rcParams.update({
-        'font.size': 12,
-        'font.weight': 'bold',
+        'font.size': 14,
+        'font.family': 'Arial',
         'axes.titlesize': 14,
         'axes.labelsize': 9,
-        'axes.labelweight': 'bold',
         'xtick.labelsize': 12,
         'ytick.labelsize': 12,
     })
 
-    random.seed(42)
+    random.seed(41)
     output_folder = "output_images_fig_3"
     os.makedirs(output_folder, exist_ok=True)
 
     # Define common parameters for simulation and visualization.
     # For the pubertal clones, we highlight a few selected ones.
-    clone_color_map = {"41": "#ff350e", "40": "#45d555", "55": "#40aef1"}
+    clone_color_map = {"135": "#ff350e", "40": "#45d555", "122": "#40aef1"}
     subsegments = 100
     vert_gap = 3.5
 
     if do_real_visualization:
-        json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\hierarchy tree.json'
-        duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+        json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+        duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
 
-        green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-        yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-        red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+        green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+        yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+        red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
         threshold_value = 300
 
+        json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2435322_Phet_24W\clean_and_expanded.json"
+        duct_borders_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2435322_Phet_24W\28052024_2435322_L5_ecad_mAX.lif - TileScan 2 Merged_Processed001_outlines.geojson"
+
+        green_image_path = None
+        yellow_image_path = None
+        red_image_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2435322_Phet_24W\28052024_2435322_L5_ecad_mAX_hyperstackforbranchanalysis-0003.tif"
+        threshold_value = 300
         # Load real duct system(s)
         duct_systems = load_duct_systems(json_path)
         duct_system = select_biggest_duct_system(duct_systems)
@@ -255,60 +289,66 @@ def main():
         n_clones = 170
         bifurcation_prob = 0.01
         initial_termination_prob = 0.25
-        max_cells = 6_000_000
+        final_termination_prob = 0.55
+        max_cells = 3_000_000
 
-        # Simulate Puberty
+        # Simulate Puberty ----------------------------------------------------
         G_puberty, progress_data_puberty = simulate_ductal_tree(
             max_cells=max_cells,
             bifurcation_prob=bifurcation_prob,
             initial_side_count=n_clones / 2,
             initial_center_count=n_clones / 2,
-            initial_termination_prob=initial_termination_prob
+            initial_termination_prob=initial_termination_prob,
+            final_termination_prob=final_termination_prob,
         )
         root_node_sim = list(G_puberty.nodes())[0]
 
-        # Determine selected ducts (for heatmap analysis)
+        # Choose a set of ducts for downstream analyses (unchanged) -----------
         nodes_puberty = list(G_puberty.nodes())
         if nodes_puberty:
-            selected_ducts = [3909]
+            selected_ducts = [1877]
             while True:
                 parents = list(G_puberty.predecessors(selected_ducts[0]))
                 if not parents:
                     break
                 selected_ducts = parents + selected_ducts
-            selected_ducts = selected_ducts[12:]    # from branch level 12
+            selected_ducts = selected_ducts[16:]    # from branch level 12
             selected_ducts = selected_ducts[::2]    # every other duct
         else:
             selected_ducts = []
 
-        print(selected_ducts)
+        print("Selected ducts for downstream analyses:", selected_ducts)
 
-
-        # If simulation visualization is enabled, generate the simulation plots.
         if do_simulated_visualization:
-            fig_puberty, ax_puberty = plot_hierarchical_graph_subsegments_simulated(
+            fig_puberty_uncol, ax_puberty_uncol = plot_hierarchical_graph_subsegments_simulated(
                 G_puberty,
                 root_node=root_node_sim,
-                clone_attr="duct_clones",
-                annotation_to_color=clone_color_map,
+                clone_attr=None,
+                annotation_to_color=None,
                 subsegments=subsegments,
                 use_hierarchy_pos=True,
-                vert_gap=vert_gap,
+                vert_gap=4,
                 orthogonal_edges=True,
                 linewidth=0.9,
                 draw_nodes=False
             )
-            plt.title("Simulated Ductal Tree after Puberty (Subsegmented)")
-            fig_puberty.set_size_inches(35, 12)
+            plt.title("Simulated Ductal Tree after Puberty (Uncoloured)")
+            fig_puberty_uncol.set_size_inches(35, 12)
             if do_save_figures:
-                save_figure_with_separated_legend(fig_puberty, "puberty_duct_tree", dpi=600,
-                                                  output_folder=output_folder)
-                plt.close(fig_puberty)
+                fig_puberty_uncol.savefig(
+                    os.path.join(output_folder, "puberty_duct_tree_uncoloured.png"),
+                    dpi=600, bbox_inches='tight'
+                )
+                plt.close(fig_puberty_uncol)
+            else:
+                plt.show()
 
+            # Retain branch-level distribution
             plot_branch_level_distribution(
                 G_puberty,
                 title="Simulation (Puberty): Ducts per Branch Level",
-                save_path=os.path.join(output_folder, "puberty_branch_level_distribution.png") if do_save_figures else None
+                save_path=os.path.join(output_folder, "puberty_branch_level_distribution.png")
+                if do_save_figures else None
             )
 
             root_trunc = selected_ducts[0]  # the proximal duct
@@ -318,16 +358,15 @@ def main():
 
             plot_selected_ducts(
                 G_puberty_trunc,
-                selected_ducts,
+                selected_ducts[1:],
                 vert_gap=1.8,
                 root_node=root_trunc,
-                linewidth = 14
+                linewidth=14
             )
             plt.title("Simulated Puberty: Selected Ducts (truncated branch)")
 
             fig_selected = plt.gcf()
             fig_selected.set_size_inches(70, 12)
-
             if fig_selected.legend():
                 fig_selected.legend().remove()
             if do_save_figures:
@@ -339,62 +378,33 @@ def main():
                 )
                 plt.close(fig_selected)
 
-            # -- Simulate Adulthood --
+            # Simulate Adulthood (needed for zoom-ins & downstream) ------------
             G_adulthood, progress_data_adult, round_graphs = simulate_adulthood(
                 G_puberty.copy(),
                 rounds=33,
                 output_graphs=True,
                 seed=42
             )
+            metrics = puberty_vs_adult0(G_puberty, progress_data_adult)
+            print(metrics)
 
-            root_node_sim_adult = list(G_adulthood.nodes())[0]
+            # Still build a colour map for adult clones (needed for zoom-ins).
+            adult_clones = {c
+                            for u, v in G_adulthood.edges()
+                            for c in G_adulthood[u][v].get("adult_clones", [])}
+            # random_adult_clones = random.sample(list(adult_clones),
+            #                                     min(10_000, len(adult_clones)))
+            # palette = sns.color_palette("tab20",
+            #                             n_colors=len(random_adult_clones))
+            # actually select 2 specific ones
+            random_adult_clones = [41626, 139857]
+            palette = ["#d097e8", "#F0C807"] # purple and yellow
 
-            fig_adult, ax_adult = plot_hierarchical_graph_subsegments_simulated(
-                G_adulthood,
-                root_node=root_node_sim_adult,
-                clone_attr="duct_clones",
-                annotation_to_color=clone_color_map,
-                subsegments=subsegments,
-                use_hierarchy_pos=True,
-                vert_gap=vert_gap,
-                orthogonal_edges=True,
-                linewidth=0.9,
-                draw_nodes=False
-            )
-            plt.title("Simulated Ductal Tree after Adulthood (Subsegmented, Pubertal Clones)")
-            fig_adult.set_size_inches(35, 12)
-            if do_save_figures:
-                save_figure_with_separated_legend(fig_adult, "adulthood_duct_tree_highlighted", dpi=900,
-                                                  output_folder=output_folder)
-                plt.close(fig_adult)
-
-            adult_clones = []
-            for u, v in G_adulthood.edges():
-                adult_clones.extend(G_adulthood[u][v].get("adult_clones", []))
-            adult_clones = list(set(adult_clones))
-            random_adult_clones = random.sample(adult_clones, min(10000, len(adult_clones)))
-            clone_color_map_adult = {str(c): sns.color_palette("tab20", n_colors=len(random_adult_clones))[i]
+            clone_color_map_adult = {str(c): palette[i]
                                      for i, c in enumerate(random_adult_clones)}
 
-            fig_adult2, ax_adult2 = plot_hierarchical_graph_subsegments_simulated(
-                G_adulthood,
-                root_node=root_node_sim_adult,
-                clone_attr="adult_clones",
-                annotation_to_color=clone_color_map_adult,
-                subsegments=subsegments,
-                use_hierarchy_pos=True,
-                vert_gap=vert_gap,
-                orthogonal_edges=True,
-                linewidth=0.9,
-                draw_nodes=False
-            )
-            plt.title("Simulated Ductal Tree after Adulthood (Subsegmented, Adult Clones)")
-            fig_adult2.set_size_inches(35, 12)
-            if do_save_figures:
-                save_figure_with_separated_legend(fig_adult2, "adulthood_duct_tree_adult_clones", dpi=900,
-                                                  output_folder=output_folder)
-                plt.close(fig_adult2)
         else:
+            # (This branch unchanged)
             if do_heatmaps:
                 G_adulthood, progress_data_adult, round_graphs = simulate_adulthood(
                     G_puberty.copy(),
@@ -404,14 +414,14 @@ def main():
                 )
 
     if do_simulated_visualization and do_zoom_plots:
-        zoom_duct_id = 190
+        zoom_duct_id = 446
 
-        # Zoom for Puberty (using pubertal clones)
+        # Zoom for Puberty (pubertal clones) ----------------------------------
         if zoom_duct_id in G_puberty.nodes():
             zoom_nodes = nx.descendants(G_puberty, zoom_duct_id)
             zoom_nodes.add(zoom_duct_id)
             subG_puberty_zoom = G_puberty.subgraph(zoom_nodes).copy()
-            fig_zoom_puberty, ax_zoom_puberty = plot_hierarchical_graph_subsegments_simulated(
+            fig_zoom_puberty, _ = plot_hierarchical_graph_subsegments_simulated(
                 subG_puberty_zoom,
                 root_node=zoom_duct_id,
                 clone_attr="duct_clones",
@@ -423,23 +433,29 @@ def main():
                 linewidth=15,
                 draw_nodes=False
             )
-            plt.title(f"Zoomed Simulated Ductal Tree after Puberty (Zoom: Duct {zoom_duct_id})")
-            fig_zoom_puberty.set_size_inches(35, 12)
+            plt.title(f"Zoomed Simulated Ductal Tree after Puberty (Duct {zoom_duct_id})")
+            fig_zoom_puberty.set_size_inches(12, 12)
             if do_save_figures:
-                save_figure_with_separated_legend(fig_zoom_puberty, f"puberty_duct_tree_zoom_{zoom_duct_id}", dpi=600,
-                                                  output_folder=output_folder)
+                save_figure_with_separated_legend(
+                    fig_zoom_puberty,
+                    f"puberty_duct_tree_zoom_{zoom_duct_id}",
+                    dpi=600,
+                    output_folder=output_folder
+                )
                 plt.close(fig_zoom_puberty)
             else:
                 plt.show()
         else:
             print(f"Duct {zoom_duct_id} not found in G_puberty.")
 
-        # Zoom for Adulthood (using pubertal clones)
+        # Zooms for Adulthood (pubertal and adult clones) ---------------------
         if zoom_duct_id in G_adulthood.nodes():
             zoom_nodes_adult = nx.descendants(G_adulthood, zoom_duct_id)
             zoom_nodes_adult.add(zoom_duct_id)
             subG_adulthood_zoom = G_adulthood.subgraph(zoom_nodes_adult).copy()
-            fig_zoom_adult, ax_zoom_adult = plot_hierarchical_graph_subsegments_simulated(
+
+            # Pubertal clone colours
+            fig_zoom_adult_pub, _ = plot_hierarchical_graph_subsegments_simulated(
                 subG_adulthood_zoom,
                 root_node=zoom_duct_id,
                 clone_attr="duct_clones",
@@ -451,17 +467,21 @@ def main():
                 linewidth=15,
                 draw_nodes=False
             )
-            plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Pubertal Clones) (Zoom: Duct {zoom_duct_id})")
-            fig_zoom_adult.set_size_inches(35, 12)
+            plt.title(f"Zoomed Adulthood Tree (Pubertal colours) – Duct {zoom_duct_id}")
+            fig_zoom_adult_pub.set_size_inches(12, 12)
             if do_save_figures:
-                save_figure_with_separated_legend(fig_zoom_adult, f"adulthood_duct_tree_pubertal_zoom_{zoom_duct_id}", dpi=900,
-                                                  output_folder=output_folder)
-                plt.close(fig_zoom_adult)
+                save_figure_with_separated_legend(
+                    fig_zoom_adult_pub,
+                    f"adulthood_duct_tree_pubertal_zoom_{zoom_duct_id}",
+                    dpi=900,
+                    output_folder=output_folder
+                )
+                plt.close(fig_zoom_adult_pub)
             else:
                 plt.show()
 
-            # Zoom for Adulthood (using adult clones)
-            fig_zoom_adult2, ax_zoom_adult2 = plot_hierarchical_graph_subsegments_simulated(
+            # Adult clone colours
+            fig_zoom_adult_adult, _ = plot_hierarchical_graph_subsegments_simulated(
                 subG_adulthood_zoom,
                 root_node=zoom_duct_id,
                 clone_attr="adult_clones",
@@ -473,12 +493,16 @@ def main():
                 linewidth=15,
                 draw_nodes=False
             )
-            plt.title(f"Zoomed Simulated Ductal Tree after Adulthood (Adult Clones) (Zoom: Duct {zoom_duct_id})")
-            fig_zoom_adult2.set_size_inches(35, 12)
+            plt.title(f"Zoomed Adulthood Tree (Adult colours) – Duct {zoom_duct_id}")
+            fig_zoom_adult_adult.set_size_inches(12, 12)
             if do_save_figures:
-                save_figure_with_separated_legend(fig_zoom_adult2, f"adulthood_duct_tree_adult_zoom_{zoom_duct_id}", dpi=900,
-                                                  output_folder=output_folder)
-                plt.close(fig_zoom_adult2)
+                save_figure_with_separated_legend(
+                    fig_zoom_adult_adult,
+                    f"adulthood_duct_tree_adult_zoom_{zoom_duct_id}",
+                    dpi=900,
+                    output_folder=output_folder
+                )
+                plt.close(fig_zoom_adult_adult)
             else:
                 plt.show()
         else:
@@ -526,12 +550,12 @@ def main():
         df_adulthood_adult.sort_values('Cluster', inplace=True)
         df_adulthood_adult = df_adulthood_adult[df_adulthood_adult['Pattern'] != nonzero_pattern]
 
-        plt.figure(figsize=(18, 5))
+        plt.figure(figsize=(5, 5))
         sns.heatmap(df_puberty[selected_ducts].T, vmin=0.0, vmax=0.2)
         plt.ylabel("Duct ID")
         plt.xlabel("Clone IDs")
-        # plt.xticks([])
-        plt.title("Simulated Sequencing Post-Puberty (Clone Fractions)")
+        plt.xticks([])
+        plt.title("Post-Puberty")
         if do_save_figures:
             plt.savefig(os.path.join(output_folder, "heatmap_puberty_clone_fractions.png"), dpi=900,
                         bbox_inches='tight')
@@ -539,12 +563,12 @@ def main():
         else:
             plt.show()
 
-        plt.figure(figsize=(18, 5))
+        plt.figure(figsize=(5, 5))
         sns.heatmap(df_adulthood_pubertal[selected_ducts].T, vmin=0.0, vmax=0.2)
         plt.ylabel("Duct ID")
         plt.xlabel("Clone IDs (Pubertal)")
-        # plt.xticks([])
-        plt.title("Simulated Sequencing Post-Adulthood (Pubertal Clones)")
+        plt.xticks([])
+        plt.title("Post-Adulthood")
         if do_save_figures:
             plt.savefig(os.path.join(output_folder, "heatmap_adulthood_pubertal_clone_fractions.png"), dpi=900,
                         bbox_inches='tight')
@@ -552,11 +576,11 @@ def main():
         else:
             plt.show()
 
-        plt.figure(figsize=(18, 5))
+        plt.figure(figsize=(20, 5))
         sns.heatmap(df_adulthood_adult[selected_ducts].T, vmin=0.0, vmax=0.2)
         plt.ylabel("Duct ID")
         plt.xlabel("Clone IDs (Adult)")
-        plt.xticks([])
+        # plt.xticks([])
         plt.title("Simulated Sequencing Post-Adulthood (Adult Clones)")
         if do_save_figures:
             plt.savefig(os.path.join(output_folder, "heatmap_adulthood_adult_clone_fractions.png"), dpi=900,
@@ -566,7 +590,7 @@ def main():
             plt.show()
 
     if do_single_duct_plot:
-        duct_id = 2098  # duct to visualize
+        duct_id = 1877  # duct to visualize
         n_iterations = 33  # number of adulthood iterations
 
         # Add the final state of puberty (pubertal clones are stored as "duct_clones" in G_puberty)
@@ -580,30 +604,51 @@ def main():
             clones_pubertal = gather_clones_for_duct(snapshot, duct_id, puberty_clones=True)
             pubertal_clones_over_iterations.append(clones_pubertal)
             print(f"Iteration {i}: {len(clones_pubertal)} pubertal clones.")
-
         total_pubertal = len(pubertal_clones_over_iterations)
-        fig_single_pubertal, ax_single_pubertal = plt.subplots(figsize=(10, 8))
-        # Plot the pubertal state at x = -2 (with thicker lines)
-        plot_ductal_clone_line_at_x(pubertal_clones_over_iterations[0], ax_single_pubertal, clone_color_map,
-                                    x=-2, line_width=14, default_color="black")
-        # Plot adulthood iterations (from 0 to n_iterations) at x = 0, 1, ..., n_iterations with thicker lines
+        fig_single_pubertal, ax_single_pubertal = plt.subplots(figsize=(11, 8))
+
+        # Pubertal state (thick line) at x = –2
+        plot_ductal_clone_line_at_x(
+            pubertal_clones_over_iterations[0],
+            ax_single_pubertal,
+            clone_color_map,
+            x=-2,
+            line_width=17,
+            default_color="black",
+        )
+
+        # Adulthood iterations (also thick lines) at x = 0, 1, …, n_iterations
         for i in range(1, total_pubertal):
             x_val = i - 1
-            plot_ductal_clone_line_at_x(pubertal_clones_over_iterations[i], ax_single_pubertal, clone_color_map,
-                                        x=x_val, line_width=14, default_color="black")
-        # Set x-axis ticks: x=-2 for the pubertal state, then 0 to n_iterations for adulthood iterations
-        xticks = [-2] + list(range(0, n_iterations + 1))
-        xtick_labels = ["pubertal"] + [str(i) for i in range(n_iterations + 1)]
+            plot_ductal_clone_line_at_x(
+                pubertal_clones_over_iterations[i],
+                ax_single_pubertal,
+                clone_color_map,
+                x=x_val,
+                line_width=17,
+                default_color="black",
+            )
+
+        wanted_ticks = list(range(5, n_iterations + 1, 5))  # 5, 10, 15, …
+        if n_iterations not in wanted_ticks:  # ensure the final (e.g. 33) is shown
+            wanted_ticks.append(n_iterations)
+
+        xticks = [-2] + wanted_ticks
+        xtick_labels = ["pubertal"] + [str(i) for i in wanted_ticks]
+
         ax_single_pubertal.set_xticks(xticks)
-        ax_single_pubertal.set_xticklabels(xtick_labels)
+        ax_single_pubertal.set_xticklabels(xtick_labels, fontsize=28)  # bump font size
+
         ax_single_pubertal.set_xlabel("Iteration")
-        # Set y-axis as normalized duct length with 1 at bottom and 0 at top
         ax_single_pubertal.set_ylabel("Normalized Duct Length")
         ax_single_pubertal.set_ylim(1, 0)
-        ax_single_pubertal.set_title("Evolution of Pubertal Clones Over Adulthood Iterations (Single Duct)")
+        ax_single_pubertal.set_title(
+            "Evolution of Pubertal Clones Over Adulthood Iterations (Single Duct)"
+        )
         plt.tight_layout()
+
         if do_save_figures:
-            fig_single_pubertal.savefig(os.path.join(output_folder, "single_duct_pubertal.png"), dpi=300,
+            fig_single_pubertal.savefig(os.path.join(output_folder, "single_duct_pubertal.png"), dpi=600,
                                          bbox_inches="tight")
             plt.close(fig_single_pubertal)
 
@@ -621,12 +666,14 @@ def main():
             all_adult_ids.update(map(str, clones))
         all_adult_ids = list(all_adult_ids)
         palette = sns.color_palette("tab20", n_colors=len(all_adult_ids))
+        # shuffle the palette for better visual distinction
+        random.shuffle(all_adult_ids)
         adult_color_map = {cid: palette[i] for i, cid in enumerate(all_adult_ids)}
 
-        fig_single_adult, ax_single_adult = plt.subplots(figsize=(10, 8))
+        fig_single_adult, ax_single_adult = plt.subplots(figsize=(11, 8))
         for i, clones_iter in enumerate(adult_clones_over_iterations):
             plot_ductal_clone_line_at_x(clones_iter, ax_single_adult, adult_color_map,
-                                        x=i, line_width=14, default_color="black")
+                                        x=i, line_width=17, default_color="black")
         ax_single_adult.set_xticks(range(total_adult))
         ax_single_adult.set_xticklabels([str(i) for i in range(total_adult)])
         ax_single_adult.set_xlabel("Iteration")
@@ -635,7 +682,7 @@ def main():
         ax_single_adult.set_title("Evolution of Adult Clones Over Adulthood Iterations (Single Duct)")
         plt.tight_layout()
         if do_save_figures:
-            fig_single_adult.savefig(os.path.join(output_folder, "single_duct_adult.png"), dpi=300,
+            fig_single_adult.savefig(os.path.join(output_folder, "single_duct_adult.png"), dpi=600,
                                      bbox_inches="tight")
             plt.close(fig_single_adult)
 

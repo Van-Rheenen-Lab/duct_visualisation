@@ -4,59 +4,41 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import random
-from puberty import simulate_ductal_tree
+from puberty_population_dynamics import simulate_ductal_tree
 from duct_excision_single_hits import compute_single_hit_ratios
 
-# ------------------------------
-# 1. LOAD AND PREPARE REAL DATA
-# ------------------------------
 
-file_path = r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\sequencing_data\matrix_mutations_updates.txt'
+from pathlib import Path
+file_path = Path(r'I:\Group Rheenen\ExpDATA\2024_J.DOORNBOS\004_ToolDev_duct_annotation_tool\sequencing_data\mutation_matrix_updated_full.txt')
 
-# Load the data
-df = pd.read_csv(file_path, delimiter=r'\s+', header=0, quotechar='"')
+def get_sample_names(file_path):
+    with file_path.open() as fh:
+        header_line = fh.readline().strip()
+    sample_names = [s.strip('"') for s in header_line.split()]
+    return sample_names
 
-# Select sample columns to process
-sample_columns = [f'wgs_S11340Nr{i}' for i in range(2, 8)]
+sample_names = get_sample_names(file_path)
+cols = ['Mutation'] + sample_names
 
-# Extract ALT and TOTAL from each sample column
-for col in sample_columns:
-    df[f'{col}_ALT'] = df[col].str.split('/').str[0].astype(float)
-    df[f'{col}_Total'] = df[col].str.split('/').str[1].astype(float)
+df = pd.read_csv(
+    file_path,
+    sep=r'\s+',
+    engine='python',
+    quoting=3,
+    names=cols,
+    skiprows=1
+)
 
-# Drop the original sample columns
-df = df.drop(columns=sample_columns)
+# Use the columns of interest
+ducts = ['HM6', 'HM8', 'HM11', 'HM15']
+data = df[ducts].astype(float)
 
-# Prepare a cleaned DataFrame with ALT and TOTAL columns
-df_clean = df[
-    [f'{col}_ALT' for col in sample_columns] +
-    [f'{col}_Total' for col in sample_columns]
-].copy()
+# Apply VAF threshold
+vaf_threshold = 0
+mask_nonzero = (data > 0.1).any(axis=1)
+data = data.loc[mask_nonzero]
 
-# Compute VAF for samples
-for col in sample_columns:
-    alt_col = f'{col}_ALT'
-    total_col = f'{col}_Total'
-    vaf_col = f'{col}_VAF'
-    df_clean[vaf_col] = df_clean[alt_col] / df_clean[total_col].replace(0, pd.NA)
-
-df_clean = df_clean.fillna(0.0)
-
-# --- RENAMING (as in your original script) ---
-rename_dict = {
-    'wgs_S11340Nr2_VAF': 'HM1',
-    'wgs_S11340Nr3_VAF': 'HM3',
-    'wgs_S11340Nr4_VAF': 'HM6',
-    'wgs_S11340Nr5_VAF': 'HM8',
-    'wgs_S11340Nr6_VAF': 'HM11',
-    'wgs_S11340Nr7_VAF': 'HM15'
-}
-df_clean = df_clean.rename(columns=rename_dict)
-
-
-# ------------------------------
-# 2. REAL DATA RATIO FUNCTIONS
-# ------------------------------
+df_clean = data.copy()  # For downstream analysis, use this as the VAF matrix
 
 def compute_real_data_ratios(df, ducts, threshold=0):
     """
@@ -123,17 +105,16 @@ def compute_real_data_multi_not_all_ratios(df, ducts, threshold=0):
     return mean_ratios, ratio_points
 
 
-# Use the renamed columns for ducts
-ducts = ["HM1", "HM3", "HM6", "HM8", "HM11", "HM15"]
-
 # Compute ratios for real data
 real_mean_ratios_single, real_ratio_points_single = compute_real_data_ratios(df_clean, ducts, threshold=0)
-real_mean_ratios_multi, real_ratio_points_multi = compute_real_data_multi_not_all_ratios(df_clean, ducts, threshold=0)
 
+# Exclude 0111 pattern from pubertal fraction
+# Compute binary pattern for each row
+pattern = df_clean.apply(lambda row: ''.join('1' if v > 0 else '0' for v in row), axis=1)
+df_clean_no_0111 = df_clean[pattern != '0111']
 
-# ------------------------------
-# 3. SIMULATION RATIO FUNCTIONS
-# ------------------------------
+real_mean_ratios_multi, real_ratio_points_multi = compute_real_data_multi_not_all_ratios(df_clean_no_0111, ducts, threshold=0)
+
 
 def compute_multi_not_all_hit_ratios(G, max_ducts=None, random_seed=42):
     """
@@ -183,21 +164,18 @@ def compute_multi_not_all_hit_ratios(G, max_ducts=None, random_seed=42):
     return pd.DataFrame(results, columns=["subset_size", "ratio"])
 
 
-# ------------------------------
-# 4. SIMULATION: Compute Ratios
-# ------------------------------
-
 num_reps = 12
 sim_dfs_single = []
 sim_dfs_multi = []
 
 # Simulation parameters (as before)
 n_clones = 170
-max_cells = 6_000_000
+max_cells = 3_000_000
 bifurcation_prob = 0.01
 initial_side_count = n_clones / 2
 initial_center_count = n_clones / 2
 initial_termination_prob = 0.25
+final_termination_prob = 0.55
 
 for i in range(num_reps):
     random.seed(i)
@@ -208,7 +186,8 @@ for i in range(num_reps):
             bifurcation_prob=bifurcation_prob,
             initial_side_count=initial_side_count,
             initial_center_count=initial_center_count,
-            initial_termination_prob=initial_termination_prob
+            initial_termination_prob=initial_termination_prob,
+            final_termination_prob=final_termination_prob,
         )
         if len(G_puberty.nodes) > 80:
             break
@@ -230,63 +209,87 @@ sim_all_multi = pd.concat(sim_dfs_multi)
 sim_mean_multi = sim_all_multi.groupby("subset_size")["ratio"].mean()
 
 
-# ------------------------------
-# 5. PLOTTING & SAVING FIGURES
-# ------------------------------
-
 # Create the output folder if it doesn't exist
 output_folder = "output_plots"
 os.makedirs(output_folder, exist_ok=True)
 
-# ----- PLOT 1: Averaged Single-Positive Ratio (Simulation vs Real Data) -----
+# Only use subset sizes 1 to 4 for plotting and simulation aggregation
+max_subset_size = 4
+
+# For simulation, only keep subset sizes 1 to 4
+sim_mean_single = sim_mean_single.loc[sim_mean_single.index <= max_subset_size]
+sim_mean_multi = sim_mean_multi.loc[sim_mean_multi.index <= max_subset_size]
+
+# For real data, only keep subset sizes 1 to 4
+real_subset_sizes = [r for r in sorted(real_mean_ratios_single.keys()) if r <= max_subset_size]
+real_values = [real_mean_ratios_single[r] for r in real_subset_sizes]
+real_subset_sizes_multi = [r for r in sorted(real_mean_ratios_multi.keys()) if r <= max_subset_size]
+real_values_multi = [real_mean_ratios_multi[r] for r in real_subset_sizes_multi]
+
+# Plot 1: Averaged Single-Positive Ratio (Simulation vs Real Data)
 plt.figure(figsize=(8, 5))
 plt.scatter(sim_mean_single.index, sim_mean_single.values, linestyle='None', color='black',
             alpha=0.6, edgecolor='k', label='Simulation Average Single-Positive Ratio')
-real_subset_sizes = sorted(real_mean_ratios_single.keys())
-real_values = [real_mean_ratios_single[r] for r in real_subset_sizes]
 plt.scatter(real_subset_sizes, real_values, linestyle='None', color='blue', alpha=0.6,
             edgecolor='k', label='Real Data Average Single-Positive Ratio')
 plt.xlabel("Number of Selected Ducts")
 plt.ylabel("Ratio")
 plt.title("Single-Positive Ratio: Simulation vs. Real Data")
 plt.legend()
+plt.xticks(np.arange(1, max_subset_size + 1, 1))
 plt.savefig(os.path.join(output_folder, "plot1_single_positive_ratio_averaged.png"), dpi=300, bbox_inches='tight')
 plt.close()
 
-
-# ----- PLOT 2: Real Data Single-Positive Ratio (All Combinations) -----
+# Plot 2: Real Data Single-Positive Ratio (All Combinations)
 plt.figure(figsize=(8, 5))
 plt.scatter(real_ratio_points_single[:, 0], real_ratio_points_single[:, 1],
             alpha=0.6, color='green', edgecolor='k')
 plt.xlabel("Number of Selected Ducts")
 plt.ylabel("Single-Positive Ratio")
 plt.title("Real Data Single-Positive Ratio (All Combinations)")
+plt.xticks(np.arange(1, max_subset_size + 1, 1))
 plt.savefig(os.path.join(output_folder, "plot2_single_positive_ratio_all_combinations.png"), dpi=300, bbox_inches='tight')
 plt.close()
 
-
-# ----- PLOT 3: Averaged Multi-Positive (Not All) Ratio (Simulation vs Real Data) -----
+# Plot 3: Averaged Multi-Positive (Not All) Ratio (Simulation vs Real Data)
 plt.figure(figsize=(8, 5))
 plt.scatter(sim_mean_multi.index, sim_mean_multi.values, linestyle='None', color='black',
             alpha=0.6, edgecolor='k', label='Simulation Average Multi-Positive (Not All) Ratio')
-real_subset_sizes_multi = sorted(real_mean_ratios_multi.keys())
-real_values_multi = [real_mean_ratios_multi[r] for r in real_subset_sizes_multi]
 plt.scatter(real_subset_sizes_multi, real_values_multi, linestyle='None', color='blue', alpha=0.6,
             edgecolor='k', label='Real Data Average Multi-Positive (Not All) Ratio')
 plt.xlabel("Number of Selected Ducts")
 plt.ylabel("Ratio")
 plt.title("Multi-Positive (But Not All) Ratio: Simulation vs. Real Data (Averaged)")
 plt.legend()
+plt.xticks(np.arange(1, max_subset_size + 1, 1))
 plt.savefig(os.path.join(output_folder, "plot3_multi_positive_ratio_averaged.png"), dpi=300, bbox_inches='tight')
 plt.close()
 
-
-# ----- PLOT 4: Real Data Multi-Positive (Not All) Ratio (All Combinations) -----
-plt.figure(figsize=(8, 5))
+# Plot 4: Real Data Multi-Positive (Not All) Ratio (All Combinations)
+plt.figure(figsize=(6, 4))
 plt.scatter(real_ratio_points_multi[:, 0], real_ratio_points_multi[:, 1],
             alpha=0.6, color='purple', edgecolor='k')
 plt.xlabel("Number of Selected Ducts")
-plt.ylabel("Multi-Positive (Not All) Ratio")
-plt.title("Real Data Multi-Positive (But Not All) Ratio (All Combinations)")
+plt.ylabel("Pubertal fraction")
+plt.title("Puberty-assigned fraction for increasing number of samples")
+plt.xticks(np.arange(1, max_subset_size + 1, 1))
 plt.savefig(os.path.join(output_folder, "plot4_multi_positive_ratio_all_combinations.png"), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(output_folder, "plot4_multi_positive_ratio_all_combinations.svg"))
 plt.close()
+
+# Apply cyclic right shift to columns for barcode pattern assignment
+barcode_columns = ducts[-1:] + ducts[:-1]
+barcode_data = df_clean[barcode_columns]
+
+# Assign patterns as in the analysis script
+pattern = barcode_data.apply(lambda row: ''.join('1' if v > 0 else '0' for v in row), axis=1)
+excluded = {'0111'}
+sel = pattern.str.count('1').between(2, 3) & ~pattern.isin(excluded)
+pubertal_fraction_4ducts = sel.mean()
+print(f"Real data pubertal fraction at 4 ducts (excluding 0111, analysis style, cyclic shift): {pubertal_fraction_4ducts}")
+print(f"Total pubertal VAFs: {sel.sum()} out of {len(sel)}")
+# Save to file for use in other scripts
+with open('pubertal_fraction_4ducts.txt', 'w') as f:
+    f.write(str(pubertal_fraction_4ducts))
+
+print("Rows with all zeros in 4 ducts after filtering:", (df_clean == 0).all(axis=1).sum())

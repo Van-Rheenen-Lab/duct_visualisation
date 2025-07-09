@@ -33,7 +33,7 @@ original_len = len(df)
 
 # quick metrics / histograms
 fully_pos = (data > 0).sum(axis=1) == 4
-avg_vaf   = data[fully_pos].mean(axis=1)
+avg_vaf = data[fully_pos].mean(axis=1)
 print(f'Average VAF for fully positive: {avg_vaf.mean():.4f}')
 
 print(f"Total number of mutations: {len(df)}")

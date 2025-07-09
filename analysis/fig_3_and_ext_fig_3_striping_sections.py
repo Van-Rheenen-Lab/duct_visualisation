@@ -100,16 +100,29 @@ def plot_downstream_graph_subsegments(
 
 
 if __name__ == "__main__":
-    json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
-    duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\hierarchy tree.json'
+    # duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood.lif - TileScan 2 Merged_Processed001_outline1.geojson'
+    #
+    # green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
+    # yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
+    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
+    # json_path = r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2549075_Cft_2W\hierarchy tree\2549075_R5_Cft2W_hierarchytree.json"
+    # duct_borders_path = None
+    # green_image_path = (r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2549075_Cft_2W\hierarchy tree\C1-23052025_249075_r5_FLASH6_sp8_max_green.tif")
+    # green_image_path = None
+    # red_image_path = (r"I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2549075_Cft_2W\hierarchy tree\C3-23052025_249075_r5_FLASH6_sp8_max_red.tif")
+    # yellow_image_path = None
+    # threshold_value = 24
+    # json_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\annotations 7324.json'
+    # duct_borders_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\01062024_7324_L5_sma_max.lif - TileScan 1 Merged_Processed001_forbranchanalysis.geojson'
+    # red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2437324_BhomPhom_24W\30052024_7324_L5_sma_max_clean_forbranchanalysis-0005.tif'
+    # green_image_path = None
+    # yellow_image_path = None
 
-    green_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0001.tif'
-    yellow_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0004.tif'
-    red_image_path = r'I:\Group Rheenen\ExpDATA\2022_H.HRISTOVA\P004_TumorProgression_Myc\S005_Mouse_Puberty\E004_Imaging_3D\2473536_Cft_24W\25102024_2473536_R5_Ecad_sp8_maxgood-0006.tif'
-    threshold_value = 400
+    threshold_value = 500
     system_idx = 1
-    cut_nodes = ["bp333"]
-    root = "bp329"
+    # cut_nodes = ["bp333"]
+    # root = "bp329"
     n_subsegments = 30
 
     # Load images
@@ -126,6 +139,10 @@ if __name__ == "__main__":
 
     duct_polygon, duct_mask = load_duct_mask(duct_borders_path, out_shape=red_image.shape)
 
+
+    # make fully positive mask
+    # duct_mask = np.ones(red_image.shape[:2], dtype=bool) if duct_mask is None else duct_mask
+
     # Plot the downstream subgraph with striped subsegments.
     fig, ax = plot_downstream_graph_subsegments(
         G,
@@ -139,11 +156,12 @@ if __name__ == "__main__":
         use_hierarchy_pos=True,
         vert_gap=2,
         orthogonal_edges=True,
-        linewidth=1.2,
+        linewidth=5,
         buffer_width=10,
-        cut_nodes=cut_nodes,
-        root=root
+        cut_nodes=None,
+        root=None
     )
 
-    # plt.savefig('2473536_Cft_24W_thresh1000_nostripes.png', dpi=800)
+    plt.savefig('2437324_BhomPhom_24W.png', dpi=800)
+    plt.savefig('2437324_BhomPhom_24W.svg')
     plt.show()

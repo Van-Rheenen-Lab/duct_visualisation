@@ -269,7 +269,7 @@ def plot_area_vs_branch_level_multi_stack(
         colors=colors[:len(labels)]
     )
     ax.set_xlabel("Branch Level")
-    ax.set_ylabel("Cumulative Area (pixels)")
+    ax.set_ylabel("Cumulative area fraction")
     ax.set_title("Stacked Cumulative Area vs. Branch Level")
     ax.legend(loc="best")
     plt.tight_layout()

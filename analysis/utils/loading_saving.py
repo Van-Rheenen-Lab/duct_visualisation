@@ -236,6 +236,13 @@ def load_duct_mask(duct_borders_path, out_shape, buffer=0, all_touched=False):
     from shapely.ops import unary_union
     from shapely.validation import make_valid
     from rasterio.features import rasterize
+    from shapely.geometry import Polygon
+
+    if duct_borders_path is None:
+        h, w = out_shape
+        full_poly = Polygon([(0, 0), (w, 0), (w, h), (0, h)])
+        full_mask = np.ones(out_shape, dtype=np.uint8)
+        return full_poly, full_mask
 
     with open(duct_borders_path, 'r') as f:
         duct_borders = json.load(f)
