@@ -1,10 +1,6 @@
 # Duct_tracker, simulation & Dendrogram visualisation
 
-This repository was build to support the paper:
-
-"Puberty as a Superspreader of Mutations Elevating Tumor Long-term Risk in Breast Tissue, H. Hristova, L. Kulaeva, J.H. Doornbos et al. 2025". 
-
-It contains a GUI to conveniently trace & annotate 2D- and 3D- mammary gland images, multiple methods for visualising these, methods to analyse fluorescent data along the dendrograms, and simulations of stem cell dynamics in mammary gland pubertal development and adult maintainance. 
+This repository contains a GUI to conveniently trace & annotate 2D- and 3D- mammary gland images, multiple methods for visualising these, methods to analyse fluorescent data along the dendrograms, and simulations of stem cell dynamics in mammary gland pubertal development and adult maintainance. 
 
 # Image annotation tool
 The image annotation tool can be run from python directly, or a .exe can be built.
