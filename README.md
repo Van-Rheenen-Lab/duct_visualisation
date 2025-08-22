@@ -1,7 +1,7 @@
 # Mammary duct simulation, experimental tracing & annotation and dendrogram visualisation package
 A package developed towards understanding the dynamics of mammary stem cells during puberty & adulthood. The repository contains:
 
-- stochastic simulators of clonal propagation during pubertal growth and adult maintenance
+- stochastic simulations of clonal propagation during pubertal growth and adult maintenance
 - a GUI for 2D and 3D image tracing and annotation
 - visualisation utilities for experimental and simulated duct networks, including dendrograms and clone overlays
 
