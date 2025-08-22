@@ -17,10 +17,6 @@ After cloning, from python terminal at the location of the package:
 ```
 pip install -e .
 ```
-
-## optional GUI builder dependencies
-pip install pyinstaller imagecodecs
-
 # Simulation
 
 The package provides abstract, experimentally informed simulations of mammary duct dynamics in two regimes. Outputs are ductal trees with per edge annotations that can be visualised next to traced glands.
@@ -47,7 +43,15 @@ Visualisation of competition in a single duct:
 
 # Image annotation tool
 The image annotation tool can be run from python directly, or a .exe can be built.
-build using the command: `pyinstaller --onefile --additional-hooks-dir=hooks --hidden-import=imagecodecs duct_tracking_GUI.py` We can also provide the .exe on request.
+first install imagecodecs and pyinstaller:
+
+```
+pip install pyinstaller imagecodecs
+```
+Add the hooks for imagecodex in a folder called hooks. build using the command: 
+```
+pyinstaller --onefile --additional-hooks-dir=hooks --hidden-import=imagecodecs duct_tracking_GUI.py
+```
 
 ![1](https://github.com/user-attachments/assets/ec626eb2-a4c6-4977-8ac9-10d8d186856a)
 
