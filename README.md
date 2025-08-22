@@ -7,7 +7,7 @@ A package developed towards understanding the dynamics of mammary stem cells dur
 
 ## Aims
 
-We aim to connect experimentally observed ductal trees and clonal patterns to simple, testable models of stem cell behavior. Simulations generate trees and clone distributions. The GUI streamlines consistent tracing and annotation. Visualisers align both worlds in a single, comparable representation.
+We aim to connect experimentally observed ductal trees and clonal patterns to simple, testable models of stem cell behavior. Simulations generate trees and clone distributions. The GUI streamlines consistent tracing and annotation. Visualisation tools aim to create consistent representations of simulated and experimental data.
 
 
 ## Installation
