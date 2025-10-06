@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "duct-tracker"
 version = "1.0.0"
-description = "Duct tracking of 2D and 3D mammary gland images"
+description = "Mammary duct simulation, tracing and visualisation"
 readme = "README.md"
 authors = [{ name = "Jeroen Doornbos", email = "j.doornbos@nki.nl" }]
 classifiers = [
@@ -14,6 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 keywords = ["Barcoding", "Polytope", "Fluorescent images"]
+license = { text = "GPL-3.0-or-later" }
 dependencies = ["pandas", "pyqt5", "shapely", "networkx","matplotlib", "scikit-image","seaborn","scikit-learn", "opencv-python-headless", "scipy", "numpy", "tifffile"]
 requires-python = ">=3.9"
 
@@ -22,7 +23,6 @@ dev = ["black", "bumpver", "pytest", "mypy"]
 
 [tool.setuptools]
 py-modules = []
-package-dir = {""="src"}
 
 [tool.mypy]
 python_version = '3.9'
