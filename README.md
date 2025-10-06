@@ -100,3 +100,6 @@ Visualisation of traced ducts of experimental 3d image:
 ![2](https://github.com/user-attachments/assets/71a404ab-4edc-429c-b3e6-557c5e319112)
 And the dendrogram abstraction of an annotated 3d image:
 ![3](https://github.com/user-attachments/assets/e8507a29-7120-40aa-bf59-1a6801ddfbcc)
+
+## Licence
+This repository is licenced under the GPL-3.0 License.
