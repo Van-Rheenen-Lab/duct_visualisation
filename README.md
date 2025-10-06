@@ -102,4 +102,4 @@ And the dendrogram abstraction of an annotated 3d image:
 ![3](https://github.com/user-attachments/assets/e8507a29-7120-40aa-bf59-1a6801ddfbcc)
 
 ## Licence
-This repository is licenced under the GPL-3.0 License.
+This repository is covered under the GPL-3.0 License.
