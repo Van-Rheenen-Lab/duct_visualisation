@@ -131,18 +131,18 @@ def run_sim_and_plot():
     plt.legend().set_visible(False)
 
     # 7) Plot the pre-computed unique-stem-cell count
-    unique_stem_counts = progress_data["unique_stem_counts"]
-
-    plt.figure(figsize=(8, 5))
-    plt.plot(iterations,
-             unique_stem_counts,
-             label="Unique stem cells in active TEBs",
-             color="purple")
-    plt.xlabel("Iteration")
-    plt.ylabel("# Unique stem cells")
-    plt.title("Stem-cell diversity across active TEBs")
-    plt.legend()
-    plt.tight_layout()
+    # unique_stem_counts = progress_data["unique_stem_counts"]
+    #
+    # plt.figure(figsize=(8, 5))
+    # plt.plot(iterations,
+    #          unique_stem_counts,
+    #          label="Unique stem cells in active TEBs",
+    #          color="purple")
+    # plt.xlabel("Iteration")
+    # plt.ylabel("# Unique stem cells")
+    # plt.title("Stem-cell diversity across active TEBs")
+    # plt.legend()
+    # plt.tight_layout()
 
     peak_iter_idx = int(np.argmax(num_active_tebs))  # index, not the label
     peak_iter = iterations[peak_iter_idx]  # iteration number
