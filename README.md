@@ -86,10 +86,15 @@ pyinstaller --onefile --additional-hooks-dir=hooks --hidden-import=imagecodecs d
 
 ![1](https://github.com/user-attachments/assets/ec626eb2-a4c6-4977-8ac9-10d8d186856a)
 
+### Demo
+The tool should run from python out of the box. It does not require an image, so a tree can be made even without actual data. For in-depth instructions, press "Instructions" in the window.
 
 
 # Simulation & Visualisation tools
-The rest of the software has been built specificially to visualise the neccesary aspects of our own imaging data, and as such, is in a less flexible state. Work will be done to increase the wider usability of this code. A quick demo can be achieved by making a dendrogram in the duct_tracing_GUI, and building its tree in analysis/simple_dendrogram_from_tracing.py. An example dendrogram has also been made, so running simple_dendrogram_from_tracing.py should work out of the box. On a simple desktop computer this should run almost instantly.
+The rest of the software has been built specificially to visualise the neccesary aspects of our own imaging data, and as such, is in a less flexible state. Work will be done to increase the wider usability of this code. 
+
+### Demo
+A quick demo can be achieved by making a dendrogram in the duct_tracing_GUI, and building its tree in analysis/simple_dendrogram_from_tracing.py. An example dendrogram has also been made, so running simple_dendrogram_from_tracing.py should work out of the box. On a simple desktop computer this should run almost instantly.
 
 Visualisation of traced ducts of experimental 3d image:
 ![2](https://github.com/user-attachments/assets/71a404ab-4edc-429c-b3e6-557c5e319112)
