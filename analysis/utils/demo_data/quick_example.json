@@ -1,0 +1,337 @@
+{
+    "duct_systems": [
+        {
+            "branch_points": {
+                "bp1": {
+                    "x": -380.0,
+                    "y": -204.0,
+                    "z": 0
+                },
+                "bp2": {
+                    "x": -504.0,
+                    "y": -389.0,
+                    "z": 0
+                },
+                "bp3": {
+                    "x": -698.0,
+                    "y": -389.0,
+                    "z": 0
+                },
+                "bp4": {
+                    "x": -449.0,
+                    "y": -532.0,
+                    "z": 0
+                },
+                "bp5": {
+                    "x": -607.0,
+                    "y": -511.0,
+                    "z": 0
+                },
+                "bp6": {
+                    "x": -530.0,
+                    "y": -587.0,
+                    "z": 0
+                },
+                "bp7": {
+                    "x": -416.0,
+                    "y": -664.0,
+                    "z": 0
+                },
+                "bp8": {
+                    "x": -209.0,
+                    "y": -535.0,
+                    "z": 0
+                },
+                "bp9": {
+                    "x": -809.0,
+                    "y": -589.0,
+                    "z": 0
+                },
+                "bp10": {
+                    "x": -727.0,
+                    "y": -694.0,
+                    "z": 0
+                },
+                "bp11": {
+                    "x": -912.0,
+                    "y": -603.0,
+                    "z": 0
+                },
+                "bp12": {
+                    "x": -554.0,
+                    "y": -626.0,
+                    "z": 0
+                },
+                "bp13": {
+                    "x": -734.0,
+                    "y": -457.0,
+                    "z": 0
+                },
+                "bp14": {
+                    "x": -798.0,
+                    "y": -448.0,
+                    "z": 0
+                },
+                "bp15": {
+                    "x": -800.0,
+                    "y": -495.0,
+                    "z": 0
+                },
+                "bp16": {
+                    "x": -899.0,
+                    "y": -473.0,
+                    "z": 0
+                },
+                "bp17": {
+                    "x": -913.0,
+                    "y": -523.0,
+                    "z": 0
+                },
+                "bp18": {
+                    "x": -963.0,
+                    "y": -452.0,
+                    "z": 0
+                },
+                "bp19": {
+                    "x": -824.0,
+                    "y": -536.0,
+                    "z": 0
+                },
+                "bp20": {
+                    "x": -866.0,
+                    "y": -434.0,
+                    "z": 0
+                },
+                "bp21": {
+                    "x": -753.0,
+                    "y": -498.0,
+                    "z": 0
+                },
+                "bp22": {
+                    "x": -588.0,
+                    "y": -636.0,
+                    "z": 0
+                },
+                "bp23": {
+                    "x": -555.0,
+                    "y": -683.0,
+                    "z": 0
+                },
+                "bp24": {
+                    "x": -495.0,
+                    "y": -686.0,
+                    "z": 0
+                }
+            },
+            "segments": {
+                "bp1tobp2": {
+                    "start_bp": "bp1",
+                    "end_bp": "bp2",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp2tobp3": {
+                    "start_bp": "bp2",
+                    "end_bp": "bp3",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp2tobp4": {
+                    "start_bp": "bp2",
+                    "end_bp": "bp4",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp2tobp5": {
+                    "start_bp": "bp2",
+                    "end_bp": "bp5",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp4tobp6": {
+                    "start_bp": "bp4",
+                    "end_bp": "bp6",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp6tobp7": {
+                    "start_bp": "bp6",
+                    "end_bp": "bp7",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp4tobp8": {
+                    "start_bp": "bp4",
+                    "end_bp": "bp8",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp5tobp9": {
+                    "start_bp": "bp5",
+                    "end_bp": "bp9",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp9tobp10": {
+                    "start_bp": "bp9",
+                    "end_bp": "bp10",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp9tobp11": {
+                    "start_bp": "bp9",
+                    "end_bp": "bp11",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp5tobp12": {
+                    "start_bp": "bp5",
+                    "end_bp": "bp12",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp3tobp13": {
+                    "start_bp": "bp3",
+                    "end_bp": "bp13",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp13tobp14": {
+                    "start_bp": "bp13",
+                    "end_bp": "bp14",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp14tobp15": {
+                    "start_bp": "bp14",
+                    "end_bp": "bp15",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp15tobp16": {
+                    "start_bp": "bp15",
+                    "end_bp": "bp16",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp16tobp17": {
+                    "start_bp": "bp16",
+                    "end_bp": "bp17",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp16tobp18": {
+                    "start_bp": "bp16",
+                    "end_bp": "bp18",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp15tobp19": {
+                    "start_bp": "bp15",
+                    "end_bp": "bp19",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp14tobp20": {
+                    "start_bp": "bp14",
+                    "end_bp": "bp20",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp13tobp21": {
+                    "start_bp": "bp13",
+                    "end_bp": "bp21",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp12tobp22": {
+                    "start_bp": "bp12",
+                    "end_bp": "bp22",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp12tobp23": {
+                    "start_bp": "bp12",
+                    "end_bp": "bp23",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                },
+                "bp12tobp24": {
+                    "start_bp": "bp12",
+                    "end_bp": "bp24",
+                    "internal_points": [],
+                    "start_z": 0,
+                    "end_z": 0,
+                    "annotations": [],
+                    "properties": {}
+                }
+            }
+        }
+    ]
+}
